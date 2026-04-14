@@ -1,0 +1,71 @@
+/* グローバルスタイル - 3D全画面表示用 */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/*
+ * #root を最前面に固定。
+ * isolation: isolate で独立したスタッキングコンテキストを生成し、
+ * Songle/TextAliveが追加するどんな要素よりも常に上に描画する。
+ */
+#root {
+  position: relative;
+  z-index: 100;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+/*
+ * TextAlive/Songle メディア要素のロックダウン。
+ * contain: layout paint で子要素の描画を完全にクリッピングし、
+ * position:fixed な子要素も外に出られないようにする。
+ */
+#textalive-media {
+  position: fixed !important;
+  bottom: 0 !important;
+  right: 0 !important;
+  width: 320px !important;
+  height: 240px !important;
+  overflow: hidden !important;
+  contain: layout paint !important;
+  opacity: 0.01 !important;
+  pointer-events: none !important;
+  z-index: -1 !important;
+}
+
+/* Songle内部のiframeやdivも範囲内に閉じ込める */
+#textalive-media * {
+  max-width: 320px !important;
+  max-height: 240px !important;
+}
+
+/* Songleウィジェットが body に直接追加する要素を強制非表示にする */
+body > *:not(#root):not(#textalive-media):not(script):not(link):not(style) {
+  position: fixed !important;
+  left: -9999px !important;
+  top: -9999px !important;
+  width: 1px !important;
+  height: 1px !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  z-index: -9999 !important;
+  overflow: hidden !important;
+}
+
+/* カウントダウン数字のポップアニメーション */
+@keyframes countdownPop {
+  0%   { transform: scale(1.6); opacity: 0; }
+  60%  { transform: scale(0.9); opacity: 1; }
+  100% { transform: scale(1.0); opacity: 1; }
+}
