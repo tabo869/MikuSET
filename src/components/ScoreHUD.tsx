@@ -94,12 +94,15 @@ export default function ScoreHUD() {
         {/* スコア */}
         <div
           style={{
-            fontSize: 28,
-            fontWeight: 700,
+            fontSize: 'clamp(40px, 6vw, 72px)', // 大幅に拡大
+            fontWeight: 900,
+            fontStyle: 'italic',
             fontFamily: "'Inter', 'Segoe UI', sans-serif",
             color: '#ffffff',
-            textShadow: '0 0 15px rgba(100, 180, 255, 0.6)',
-            letterSpacing: 2,
+            textShadow: '0 0 20px rgba(0, 210, 255, 0.8), 0 0 40px rgba(0, 150, 255, 0.5)',
+            letterSpacing: 4,
+            lineHeight: 1,
+            transition: 'all 0.1s ease',
           }}
         >
           {display.score.toLocaleString()}
@@ -108,17 +111,18 @@ export default function ScoreHUD() {
         {/* ヒット/ミス カウンター */}
         <div
           style={{
-            fontSize: 12,
+            fontSize: 18, // 12 -> 18 に拡大
             fontFamily: "'Inter', 'Segoe UI', sans-serif",
-            color: 'rgba(255, 255, 255, 0.6)',
+            color: 'rgba(255, 255, 255, 0.9)',
             display: 'flex',
-            gap: 12,
-            marginTop: 4,
-            fontWeight: 600,
+            gap: 16,
+            marginTop: 8,
+            fontWeight: 700,
+            textShadow: '0 0 10px rgba(0,0,0,0.8)',
           }}
         >
-          <span>HIT {display.hits}</span>
-          <span>MISS {display.misses}</span>
+          <span style={{ color: '#aaddff' }}>HIT {display.hits}</span>
+          <span style={{ color: '#ff88aa' }}>MISS {display.misses}</span>
         </div>
 
         {/* 入力モードインジケーター */}

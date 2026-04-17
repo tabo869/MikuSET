@@ -69,7 +69,7 @@ export interface MusicPlayerState {
 
 /** MusicPlayer の操作メソッド */
 export interface MusicPlayerActions {
-  play: () => void;
+  play: (forceStart?: boolean) => void;
   pause: () => void;
   stop: () => void;
   togglePlayPause: () => void;
@@ -87,6 +87,8 @@ export interface MusicPlayerContextValue {
   actions: MusicPlayerActions;
   /** 現在の再生位置を高速に参照するためのRef（useFrame内で使用） */
   positionRef: React.RefObject<number>;
+  /** 曲中の最大到達再生位置 */
+  maxPositionRef: React.RefObject<number>;
 }
 
 // ---------------------------------------------------------------------------
@@ -114,6 +116,7 @@ interface MusicProviderProps {
 export function MusicProvider({ children }: MusicProviderProps) {
   const playerRef = useRef<Player | null>(null);
   const positionRef = useRef<number>(0);
+  const maxPositionRef = useRef<number>(0);
 
   const [state, setState] = useState<MusicPlayerState>({
     isPlaying: false,
@@ -206,6 +209,7 @@ export function MusicProvider({ children }: MusicProviderProps) {
 
         // 全Wordのリストを構築してグローバルに公開（NoteManagerが参照する）
         const words: { text: string; startTime: number; endTime: number }[] = [];
+        let lastWordTime = 0;
         let word = video.firstWord;
         while (word) {
           words.push({
@@ -213,9 +217,12 @@ export function MusicProvider({ children }: MusicProviderProps) {
             startTime: word.startTime,
             endTime: word.endTime,
           });
+          lastWordTime = Math.max(lastWordTime, word.endTime);
           word = word.next;
         }
         (window as unknown as Record<string, unknown>).__mikusetWords = words;
+        (window as unknown as Record<string, unknown>).__mikusetLastWordTime = lastWordTime;
+        (window as unknown as Record<string, unknown>).__mikusetVideoDuration = video.duration;
 
         // フレーズ情報の取得（PhraseDisplayで使用）
         const phrases: {
@@ -288,6 +295,9 @@ export function MusicProvider({ children }: MusicProviderProps) {
        */
       onTimeUpdate(position: number) {
         positionRef.current = position;
+        if (position > maxPositionRef.current) {
+          maxPositionRef.current = position;
+        }
       },
 
       onPlay() {
@@ -315,7 +325,7 @@ export function MusicProvider({ children }: MusicProviderProps) {
   }, []);
 
   // 操作メソッド
-  const play = useCallback(() => {
+  const play = useCallback((forceStart = false) => {
     const player = playerRef.current;
     if (!player) return;
 
@@ -326,16 +336,22 @@ export function MusicProvider({ children }: MusicProviderProps) {
     const firstWordTime =
       (window as unknown as Record<string, unknown>).__mikusetFirstWordTime as number | undefined;
 
-    if (firstWordTime !== undefined && firstWordTime > NOTE_LEAD_MS) {
-      const seekTo = Math.max(0, firstWordTime - NOTE_LEAD_MS);
-      console.log(`[MusicPlayer] 最初のWord(${Math.round(firstWordTime / 1000)}s)の${NOTE_LEAD_MS / 1000}秒前(${Math.round(seekTo / 1000)}s)からシーク再生`);
-      player.requestMediaSeek(seekTo);
-      player.requestPlay();
-    } else {
-      // 最初のWordが3秒以内 or データ未取得の場合は通常の先頭再生
-      player.requestPlay();
-    }
+    const isFinished = player.video && positionRef.current >= player.video.endTime - 500;
+    const shouldRestart = forceStart === true || positionRef.current === 0 || isFinished;
 
+    if (shouldRestart) {
+      if (firstWordTime !== undefined && firstWordTime > NOTE_LEAD_MS) {
+        const seekTo = Math.max(0, firstWordTime - NOTE_LEAD_MS);
+        console.log(`[MusicPlayer] 最初のWord(${Math.round(firstWordTime / 1000)}s)の${NOTE_LEAD_MS / 1000}秒前(${Math.round(seekTo / 1000)}s)からシーク再生`);
+        player.requestMediaSeek(seekTo);
+      } else {
+        player.requestMediaSeek(0);
+      }
+    }
+    
+    player.requestPlay();
+
+    maxPositionRef.current = 0; // 新規再生時に最大位置をリセット
     setState((prev) => ({ ...prev, isTrackingTest: false, calibrationStep: 'NONE' }));
   }, []);
 
@@ -415,8 +431,8 @@ export function MusicProvider({ children }: MusicProviderProps) {
   );
   // contextValue は state が変わった時のみ再生成
   const contextValue = useMemo<MusicPlayerContextValue>(
-    () => ({ state, actions, positionRef }),
-    [state, actions, positionRef]
+    () => ({ state, actions, positionRef, maxPositionRef }),
+    [state, actions, positionRef, maxPositionRef]
   );
 
   return (

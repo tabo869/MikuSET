@@ -11,13 +11,16 @@ import { CONTEST_SONGS } from '../config/songs';
  * - 曲の終了時：自動的に停止状態になり、再び中央にスタートボタンが現れる
  */
 export default function MusicManager() {
-  const { state, actions, positionRef } = useMusicPlayer();
+  const { state, actions, positionRef, maxPositionRef } = useMusicPlayer();
   const { actions: gameActions } = useGameState();
   const [displayTime, setDisplayTime] = useState(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   /** カウントダウン状態: null=非表示, 3/2/1=カウント中, 0='GO!' */
   const [countdown, setCountdown] = useState<number | null>(null);
+
+  /** リザルト画面表示状態 */
+  const [showResult, setShowResult] = useState<boolean>(false);
 
   /** フェイクプログレスバー用 (0-100) */
   const [fakeProgress, setFakeProgress] = useState(0);
@@ -61,6 +64,30 @@ export default function MusicManager() {
     };
   }, [state.isPlaying, positionRef]);
 
+  // Player側が停止（isPlaying: false）になったタイミングで、曲の最後まで来ているか判定する
+  useEffect(() => {
+    if (!state.isPlaying) {
+      const lastWordTime = (window as unknown as Record<string, unknown>).__mikusetLastWordTime as number | undefined;
+      const duration = (window as unknown as Record<string, unknown>).__mikusetVideoDuration as number | undefined;
+      
+      let isCleared = false;
+      
+      // 終了判定: 最後の文字の時刻の5秒前、または全体の曲の長さの5秒前に到達していればクリアとみなす
+      // (TextAliveのonStopがfadeout中などの少し早めに発火する場合をカバーするためマージンを広く取る)
+      const maxPos = maxPositionRef.current;
+      
+      if (lastWordTime !== undefined && maxPos > 0 && maxPos >= lastWordTime - 5000) {
+        isCleared = true;
+      } else if (duration !== undefined && maxPos > 0 && maxPos >= duration - 5000) {
+        isCleared = true;
+      }
+      
+      if (isCleared) {
+        setShowResult(true);
+      }
+    }
+  }, [state.isPlaying, maxPositionRef]);
+
   /** カウントダウン処理 */
   useEffect(() => {
     if (countdown === null) return;
@@ -68,15 +95,16 @@ export default function MusicManager() {
       // 'GO!' 表示後に再生開始
       const timer = setTimeout(() => {
         setCountdown(null);
-        if (positionRef.current === 0) gameActions.reset();
-        actions.play();
+        // 今回の修正で START ボタンからは必ず最初からの扱いになる（STOPを経由するため）
+        gameActions.reset();
+        actions.play(true); // forceStart
       }, 700);
       return () => clearTimeout(timer);
     }
     // 1秒ごとにカウントダウン
     const timer = setTimeout(() => setCountdown((c) => (c as number) - 1), 1000);
     return () => clearTimeout(timer);
-  }, [countdown, actions, gameActions, positionRef]);
+  }, [countdown, actions, gameActions]);
 
   /** 再生開始ハンドラ（即時再生ではなくカウントダウンを起動） */
   const handleStart = () => {
@@ -130,8 +158,82 @@ export default function MusicManager() {
         </div>
       )}
 
-      {/* ── スタート画面オーバーレイ（未再生・カウントダウンなし時） ───── */}
-      {!state.isPlaying && countdown === null && (
+      {/* ── リザルト画面オーバーレイ ───────────────────────────── */}
+      {showResult && (
+        <div style={{
+          position: 'absolute',
+          inset: 0,
+          zIndex: 60,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: 'rgba(0, 5, 20, 0.9)',
+          backdropFilter: 'blur(10px)',
+          animation: 'fadeIn 0.5s ease-out',
+        }}>
+          {/* リザルト画面専用のインラインアニメーション */}
+          <style>
+            {`
+              @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+              @keyframes slideUp { from { transform: translateY(50px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+            `}
+          </style>
+
+          <h2 style={{
+            color: '#aaddff',
+            fontSize: 24,
+            letterSpacing: 8,
+            marginBottom: 16,
+            animation: 'slideUp 0.6s ease-out',
+          }}>
+            STAGE CLEARED
+          </h2>
+          
+          <div style={{
+            fontSize: 96,
+            fontWeight: 900,
+            color: '#ffffff',
+            textShadow: '0 0 40px rgba(0, 210, 255, 0.6)',
+            marginBottom: 40,
+            animation: 'slideUp 0.8s ease-out',
+            fontFamily: "'Inter', 'Segoe UI', sans-serif",
+            fontStyle: 'italic',
+          }}>
+            {/* スコア表示のために GameState を取得 */}
+            <ResultScore />
+          </div>
+
+          <div style={{ animation: 'slideUp 1s ease-out', display: 'flex', gap: 24 }}>
+            <button
+              onClick={() => {
+                setShowResult(false);
+                gameActions.reset();
+              }}
+              style={{
+                padding: '16px 40px',
+                fontSize: 20,
+                fontWeight: 700,
+                letterSpacing: 2,
+                color: '#ffffff',
+                background: 'linear-gradient(135deg, #00d2ff 0%, #3a7bd5 100%)',
+                border: 'none',
+                borderRadius: 30,
+                cursor: 'pointer',
+                boxShadow: '0 8px 32px rgba(0, 210, 255, 0.4)',
+                transition: 'all 0.2s ease',
+              }}
+              onMouseOver={(e) => (e.currentTarget.style.transform = 'scale(1.05)')}
+              onMouseOut={(e) => (e.currentTarget.style.transform = 'scale(1)')}
+            >
+              NEXT (SELECT SONG)
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── スタート画面オーバーレイ（未再生・カウントダウンなし・リザルトなし時） ───── */}
+      {!state.isPlaying && countdown === null && !showResult && (
         <div
           style={{
             position: 'absolute',
@@ -645,4 +747,24 @@ function formatTime(ms: number): string {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+}
+
+/** リザルト画面でスコアを表示するための内部コンポーネント */
+function ResultScore() {
+  const { stateRef } = useGameState();
+  const s = stateRef.current;
+  return (
+    <div style={{ textAlign: 'center' }}>
+      <div>{s.score.toLocaleString()}</div>
+      <div style={{
+        fontSize: 24, fontWeight: 600, color: '#ffdd55', textShadow: 'none',
+        display: 'flex', gap: 40, justifyContent: 'center', marginTop: 16,
+        letterSpacing: 2, fontFamily: 'monospace'
+      }}>
+        <div>MAX COMBO: {s.maxCombo}</div>
+        <div>HITS: {s.hits}</div>
+        <div style={{ color: '#ff6688' }}>MISS: {s.misses}</div>
+      </div>
+    </div>
+  );
 }
