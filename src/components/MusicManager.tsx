@@ -25,6 +25,8 @@ export default function MusicManager() {
   /** フェイクプログレスバー用 (0-100) */
   const [fakeProgress, setFakeProgress] = useState(0);
 
+  const isUserStopped = useRef(false);
+
   // Loading時のフェイクプログレスアニメーション
   useEffect(() => {
     if (!state.isReady) {
@@ -72,14 +74,15 @@ export default function MusicManager() {
       
       let isCleared = false;
       
-      // 終了判定: 最後の文字の時刻の5秒前、または全体の曲の長さの5秒前に到達していればクリアとみなす
-      // (TextAliveのonStopがfadeout中などの少し早めに発火する場合をカバーするためマージンを広く取る)
+      // 終了判定: TextAliveからのonTimeUpdateイベント欠落時や早めのonPause発行に備え、大幅なマージン（15000ms）を許容する
       const maxPos = maxPositionRef.current;
       
-      if (lastWordTime !== undefined && maxPos > 0 && maxPos >= lastWordTime - 5000) {
-        isCleared = true;
-      } else if (duration !== undefined && maxPos > 0 && maxPos >= duration - 5000) {
-        isCleared = true;
+      if (!isUserStopped.current) {
+        if (lastWordTime !== undefined && maxPos > 0 && maxPos >= lastWordTime - 15000) {
+          isCleared = true;
+        } else if (duration !== undefined && maxPos > 0 && maxPos >= duration - 15000) {
+          isCleared = true;
+        }
       }
       
       if (isCleared) {
@@ -108,11 +111,13 @@ export default function MusicManager() {
 
   /** 再生開始ハンドラ（即時再生ではなくカウントダウンを起動） */
   const handleStart = () => {
+    isUserStopped.current = false;
     setCountdown(3); // 3→2→1→GO→再生
   };
 
   /** 中断（ストップ）ハンドラ */
   const handleStop = () => {
+    isUserStopped.current = true;
     actions.stop(); // 曲の再生を停止し、位置を0に戻す
   };
 

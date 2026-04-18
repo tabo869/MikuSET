@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useCallback, useState } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import type { BothHandsDataRef } from '../types/hand';
 
 interface VirtualInputManagerProps {
@@ -27,6 +27,10 @@ const PLAY_HALF_H = 2.8; // Y 方向の片側最大値
  * ウィンドウの縦横比に合わせて動的に更新する。
  */
 function calcTrackingInset(winW: number, winH: number) {
+  if (winW <= 0 || winH <= 0) {
+    return { topPct: 0, leftPct: 0 };
+  }
+
   const visHalfH = Math.tan((FOV_HALF_DEG * Math.PI) / 180) * CAM_Z;
   const aspect = winW / winH;
   const visHalfW = visHalfH * aspect;
@@ -179,16 +183,14 @@ export default function VirtualInputManager({ handsDataRef, isActive }: VirtualI
   // トラッキングエリアの幅/高さ占有率
   const areaW = 100 - leftPct * 2; // %
   const areaH = 100 - topPct * 2;  // %
-  const halfW = areaW / 2;
 
   const renderGrid = (
     rows: CellCoord[][],
     hand: 'left' | 'right',
-    borderColor: string,
-    pressColor: string
+    borderColor: string
   ) =>
-    rows.map((row, ri) =>
-      row.map((cell, ci) => {
+    rows.map((row) =>
+      row.map((cell) => {
         const rawKey = cell.label === '<' ? ',' : cell.label === '>' ? '.' : cell.label.toLowerCase();
         return (
           <div
@@ -245,7 +247,7 @@ export default function VirtualInputManager({ handsDataRef, isActive }: VirtualI
         gridTemplateRows: '1fr 1fr 1fr',
         borderRight: '1px solid rgba(170, 200, 255, 0.3)',
       }}>
-        {renderGrid(LEFT_CELLS, 'left', 'rgba(100,170,255,0.4)', '#3388ff')}
+        {renderGrid(LEFT_CELLS, 'left', 'rgba(100,170,255,0.4)')}
       </div>
 
       {/* 右手エリア 3x3 (トラッキング右半分内) */}
@@ -256,7 +258,7 @@ export default function VirtualInputManager({ handsDataRef, isActive }: VirtualI
         gridTemplateColumns: '1fr 1fr 1fr',
         gridTemplateRows: '1fr 1fr 1fr',
       }}>
-        {renderGrid(RIGHT_CELLS, 'right', 'rgba(255,100,170,0.4)', '#ff66aa')}
+        {renderGrid(RIGHT_CELLS, 'right', 'rgba(255,100,170,0.4)')}
       </div>
     </div>
   );

@@ -4,6 +4,7 @@ import { CameraShake } from '@react-three/drei';
 import * as THREE from 'three';
 import { useGameState } from '../hooks/useGameState';
 import { useMusicPlayer } from '../hooks/useMusicPlayer';
+import { CONTEST_SONGS } from '../config/songs';
 
 // ---------------------------------------------------------------------------
 // 共通レベル計算関数 (useFrame内で使用)
@@ -184,7 +185,10 @@ function AudiencePenlights() {
   const glowMeshRef = useRef<THREE.InstancedMesh>(null!);
   
   const { stateRef } = useGameState();
-  const { positionRef } = useMusicPlayer();
+  const { positionRef, state: musicState } = useMusicPlayer();
+  const songIndex = useMemo(() => {
+    return CONTEST_SONGS.findIndex((s) => s.url === musicState.activeSongUrl);
+  }, [musicState.activeSongUrl]);
   const choruses = (window as unknown as Record<string, unknown>).__mikusetChoruses as { startTime: number; endTime: number }[] | undefined;
 
   // ペンライトの初期位置とパラメータ
@@ -213,7 +217,7 @@ function AudiencePenlights() {
   const dummy = useMemo(() => new THREE.Object3D(), []);
   const colorObj = useMemo(() => new THREE.Color(), []);
 
-  useFrame((state, delta) => {
+  useFrame((state) => {
     if (!coreMeshRef.current || !glowMeshRef.current || !groupRef.current) return;
     
     const level = calculateFinalLevel(stateRef.current.productionLevel, positionRef.current, choruses);
@@ -261,7 +265,7 @@ function AudiencePenlights() {
 
         // レベルに応じたカラーバリエーション
         // 5曲目(インデックス4)は鏡音リン、それ以外は初音ミク
-        const isRin = stateRef.current.songIndex === 4;
+        const isRin = songIndex === 4;
         const mainColor = isRin ? 0xfcf5a7 : 0x86cecb;
         const accentColors = [0xcb213c, 0xaeb6e5, 0xebd3cf]; // MEIKO, KAITO, LUKA
 
