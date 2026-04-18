@@ -52,33 +52,33 @@ interface DisplayLine {
 }
 
 export default function PhraseDisplay({ positionRef }: { positionRef: React.RefObject<number> }) {
-  const [currentChunk, setCurrentChunk] = useState<ChunkData | null>(null);
   const [pastLines, setPastLines] = useState<DisplayLine[]>([]);
 
   const sourceRef = useRef<unknown>(null);
   const displayChunksRef = useRef<ChunkData[]>([]);
   const activeChunkIdRef = useRef<string | null>(null);
+  const allWordsRef = useRef<WordData[]>([]);
+  // 各Wordの累積X位置を事前計算するためのキャッシュ
+  const wordOffsetsRef = useRef<number[]>([]);
 
   const trackRef = useRef<HTMLDivElement>(null);
+  const tickerRef = useRef<HTMLDivElement>(null);
   
   // スクロールを一元管理 (絶対Y基準)
   const globalScrollRef = useRef(0);
   const lastTimestampRef = useRef<number | null>(null);
   const animFrameRef = useRef<number>(0);
 
-  const [, setTick] = useState(0);
 
   // ─── 常時スクロールアニメーション (rAF) ───
   useEffect(() => {
     const animate = (ts: number) => {
-      setTick(t => t + 1);
       
       if (lastTimestampRef.current !== null) {
         const dt = ts - lastTimestampRef.current;
         globalScrollRef.current += (BASE_SCROLL_PPS * dt) / 1000;
 
         if (trackRef.current) {
-          // トラック全体を上方向へ移動し続ける
           trackRef.current.style.transform = `translateY(${-globalScrollRef.current}px)`;
         }
 
@@ -98,26 +98,104 @@ export default function PhraseDisplay({ positionRef }: { positionRef: React.RefO
     return () => cancelAnimationFrame(animFrameRef.current);
   }, []);
 
-  // ─── チャンク切り替え監視 ───
+  // ─── 下部ティッカーの横スクロール位置を更新 ───
+  useEffect(() => {
+    const updateTicker = () => {
+      if (!tickerRef.current || allWordsRef.current.length === 0) return;
+
+      const now = positionRef.current;
+      if (now <= 0) return;
+
+      const words = allWordsRef.current;
+      const offsets = wordOffsetsRef.current;
+      if (offsets.length === 0) return;
+
+      // 歌唱開始より少し早くハイライト＆スクロールさせる（+150msのオフセットで体感遅延を吸収）
+      const adjustedNow = now + 150;
+
+      // 現在歌唱中のWord indexを見つける（startTimeを過ぎた最後のWord）
+      let activeIdx = -1;
+      for (let i = 0; i < words.length; i++) {
+        if (adjustedNow >= words[i].startTime) {
+          activeIdx = i;
+        } else {
+          break;
+        }
+      }
+
+      // DOMを直接操作してハイライト状態を即座に更新（Reactの再描画コストを回避・遅延撲滅）
+      if (tickerRef.current) {
+         const children = tickerRef.current.children;
+         for (let i = 0; i < children.length; i++) {
+             const span = children[i] as HTMLElement;
+             if (i <= activeIdx) {
+                 span.style.color = '#ffffff';
+                 span.style.textShadow = '0 0 15px #88ccff, 0 0 30px #44aaff, 0 0 60px #0066ff';
+             } else {
+                 span.style.color = 'rgba(180, 210, 255, 0.35)';
+                 span.style.textShadow = '0 0 8px rgba(50, 100, 200, 0.3)';
+             }
+         }
+      }
+
+      if (activeIdx >= 0) {
+        // 現在のWordの位置までスクロール
+        // 表示エリア幅の中央(50%)位置に現在のWordが来るように遅らせてオフセット
+        const containerWidth = tickerRef.current.parentElement?.clientWidth ?? 800;
+        const targetOffset = containerWidth * 0.5;
+        const scrollX = offsets[activeIdx] - targetOffset;
+        tickerRef.current.style.transform = `translateX(${-Math.max(0, scrollX)}px)`;
+      }
+    };
+
+    const interval = setInterval(updateTicker, 60);
+    return () => clearInterval(interval);
+  }, [positionRef]);
+
+  // ─── Word累積位置の計測 ───
+  useEffect(() => {
+    if (!tickerRef.current || allWordsRef.current.length === 0) return;
+    // DOMが描画されてからWord位置を計測する
+    const measure = () => {
+      if (!tickerRef.current) return;
+      const children = tickerRef.current.children;
+      const offsets: number[] = [];
+      for (let i = 0; i < children.length; i++) {
+        const el = children[i] as HTMLElement;
+        offsets.push(el.offsetLeft);
+      }
+      wordOffsetsRef.current = offsets;
+    };
+    // 少し遅延して計測（DOM反映待ち）
+    const timer = setTimeout(measure, 100);
+    return () => clearTimeout(timer);
+  }, [allWordsRef.current]);
+
+  // ─── チャンク切り替え監視（上部スクロール用） ───
   useEffect(() => {
     const interval = setInterval(() => {
       const words = (window as unknown as Record<string, unknown>).__mikusetWords as WordData[] | undefined;
       if (!words || words.length === 0) return;
 
+      // 曲切り替え検知 → 全状態をクリーンリセット
       if (words !== sourceRef.current) {
         sourceRef.current = words;
         displayChunksRef.current = generateChunks(words, WORDS_PER_FRONT);
         activeChunkIdRef.current = null;
-        setCurrentChunk(null);
+        allWordsRef.current = words;
+        wordOffsetsRef.current = [];
         setPastLines([]);
         globalScrollRef.current = 0;
+        lastTimestampRef.current = null;
+        if (tickerRef.current) tickerRef.current.style.transform = 'translateX(0px)';
+        if (trackRef.current) trackRef.current.style.transform = 'translateY(0px)';
         return;
       }
 
       const now = positionRef.current;
       if (now <= 0) return;
 
-      const LOOK_AHEAD = 1000; // 最前列には少し早めに持ってくる
+      const LOOK_AHEAD = 4000;
       
       const cur = displayChunksRef.current.find(
         c => (now + LOOK_AHEAD) >= c.startTime && now <= c.endTime + 500
@@ -128,7 +206,7 @@ export default function PhraseDisplay({ positionRef }: { positionRef: React.RefO
               let newY = globalScrollRef.current;
               if (prev.length > 0) {
                   const lastY = prev[prev.length - 1].startY;
-                  if (newY < lastY + 50) newY = lastY + 50; // 最低50pxのオフセット
+                  if (newY < lastY + 50) newY = lastY + 50;
               }
               return [...prev, {
                   uid: `${chunk.id}-past-${Date.now()}`,
@@ -144,12 +222,10 @@ export default function PhraseDisplay({ positionRef }: { positionRef: React.RefO
           if (oldChunk) pushOldChunkToTrack(oldChunk);
         }
         activeChunkIdRef.current = cur.id;
-        setCurrentChunk(cur);
       } else if (!cur && activeChunkIdRef.current) {
         const oldChunk = displayChunksRef.current.find(c => c.id === activeChunkIdRef.current);
         if (oldChunk) pushOldChunkToTrack(oldChunk);
         activeChunkIdRef.current = null;
-        setCurrentChunk(null);
       }
     }, 100);
     return () => clearInterval(interval);
@@ -187,12 +263,11 @@ export default function PhraseDisplay({ positionRef }: { positionRef: React.RefO
             transform: 'rotateX(50deg)',
             willChange: 'transform',
         }}>
-            {/* 内部スクロール専用のコンテナ */}
             <div
                 ref={trackRef}
                 style={{
                   position: 'absolute',
-                  top: '100%', // 底辺からスタート
+                  top: '100%',
                   left: 0,
                   width: '100%',
                   willChange: 'transform',
@@ -201,7 +276,7 @@ export default function PhraseDisplay({ positionRef }: { positionRef: React.RefO
               {pastLines.map((line) => (
                 <div key={line.uid} style={{
                   position: 'absolute',
-                  top: line.startY, // スクロールに同期した絶対位置
+                  top: line.startY,
                   left: 0,
                   width: '100%',
                   height: '50px',
@@ -231,7 +306,7 @@ export default function PhraseDisplay({ positionRef }: { positionRef: React.RefO
         </div>
       </div>
 
-      {/* ─── 最前列の現在フレーズ (画面下部に大きく固定) ─── */}
+      {/* ─── 最前列の現在フレーズ (画面下部、左右認識エリア内) ─── */}
       <div style={{
         position: 'absolute',
         bottom: '8%',
@@ -240,38 +315,48 @@ export default function PhraseDisplay({ positionRef }: { positionRef: React.RefO
         justifyContent: 'center',
         alignItems: 'center',
       }}>
-        {currentChunk && (
-          <div style={{
-            maxWidth: 1200,
-            width: '80%',   
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            flexWrap: 'wrap',
-            gap: '4px 16px',
-            textAlign: 'center',
-          }}>
-            {currentChunk.words.map(w => {
+        <div style={{
+          maxWidth: 1200,
+          width: '80%',
+          overflow: 'hidden',
+          position: 'relative',
+          // 左右にフェードアウト
+          maskImage: 'linear-gradient(to right, transparent 0%, black 8%, black 85%, transparent 100%)',
+          WebkitMaskImage: 'linear-gradient(to right, transparent 0%, black 8%, black 85%, transparent 100%)',
+        }}>
+          <div
+            ref={tickerRef}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '2px 8px',
+              whiteSpace: 'nowrap',
+              willChange: 'transform',
+              transition: 'transform 0.1s linear',
+            }}
+          >
+            {allWordsRef.current.map(w => {
               const hit = isWordHit(w.startTime);
               return (
                 <span key={w.id} style={{
-                  fontSize: 'clamp(32px, 5vw, 64px)',
+                  fontSize: 'clamp(21px, 3.3vw, 42px)',
                   fontFamily: "'Noto Sans JP', sans-serif",
                   fontWeight: 900,
-                  color: hit ? '#ffffff' : 'rgba(180, 210, 255, 0.7)',
+                  color: hit ? '#ffffff' : 'rgba(180, 210, 255, 0.35)',
                   textShadow: hit 
                     ? '0 0 15px #88ccff, 0 0 30px #44aaff, 0 0 60px #0066ff' 
-                    : '0 0 8px rgba(50, 100, 200, 0.5)',
+                    : '0 0 8px rgba(50, 100, 200, 0.3)',
                   transition: 'color 0.1s ease, text-shadow 0.1s ease',
                   lineHeight: 1.1,
                   letterSpacing: '0.1em',
+                  flexShrink: 0,
                 }}>
                   {w.text}
                 </span>
               );
             })}
           </div>
-        )}
+        </div>
       </div>
       
     </div>

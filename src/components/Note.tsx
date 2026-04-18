@@ -18,7 +18,7 @@ const NOTE_TRAVEL_TIME = 2000;
 const HIT_DISTANCE_XY = 5.0; // 激甘ヒットボックス（X/Y半径）
 const HIT_DISTANCE_Z = 2.0;  // Z軸（奥行き）の判定
 const HIT_TIMING_WINDOW = 400;
-const PARTICLE_COUNT = 20; // 破壊エフェクト（軽量化済）
+const PARTICLE_COUNT = 8; // 破壊エフェクト（パフォーマンス重視で最小化）
 
 // ---------------------------------------------------------------------------
 // パーティクル & ガイド コンポーネント
@@ -41,10 +41,9 @@ function HitEffect({
   const { getSnapshot } = useGameState();
 
   if (particlesRef.current.length === 0) {
-    const level = getSnapshot().productionLevel;
-    // Level 3以上でパーティクル数とスピードが爆増する
-    const actualParticleCount = level >= 3 ? PARTICLE_COUNT * 2 : PARTICLE_COUNT;
-    const speedMultiplier = level >= 3 ? 2.5 : 1.0;
+    // パフォーマンス優先: パーティクル数は固定（Level3でも増やさない）
+    const actualParticleCount = PARTICLE_COUNT;
+    const speedMultiplier = 1.0;
 
     for (let i = 0; i < actualParticleCount; i++) {
       const angle = (i / actualParticleCount) * Math.PI * 2;
@@ -84,7 +83,7 @@ function HitEffect({
     <group>
       {particlesRef.current.map((_, i) => (
         <mesh key={i} ref={(el) => { meshRefs.current[i] = el; }}>
-          <dodecahedronGeometry args={[0.15]} />
+          <sphereGeometry args={[0.15, 4, 4]} />
           <meshStandardMaterial
             color={color}
             emissive={color}
@@ -139,7 +138,7 @@ function RingGuide({
   return (
     <mesh ref={ringRef} position={[targetX, targetY, JUDGE_Z]}>
       {/* 基準の半径をノーツ本体のサイズ(0.3)に合わせる */}
-      <torusGeometry args={[0.3, 0.015, 16, 48]} />
+      <torusGeometry args={[0.3, 0.015, 8, 24]} />
       <meshStandardMaterial
         color={color}
         emissive={color}
@@ -181,8 +180,9 @@ const Note = memo(function Note({ note, positionRef, handsDataRef, onHit, onMiss
     if (!groupRef.current) return;
 
     const now = positionRef.current;
+    const noteSpeed = note.speed ?? NOTE_TRAVEL_TIME;
     const elapsed = now - note.spawnTime;
-    const progress = Math.max(0, elapsed / NOTE_TRAVEL_TIME);
+    const progress = Math.max(0, elapsed / noteSpeed);
     progressRef.current = progress;
 
     if (stateRef.current === 'hit') {
@@ -202,7 +202,8 @@ const Note = memo(function Note({ note, positionRef, handsDataRef, onHit, onMiss
       const trackingHand = handsDataRef.current[note.hand];
       if (trackingHand.detected) {
         // タクトの位置に向かって急激に吸い寄せる（Lerp）
-        groupRef.current.position.lerp(trackingHand.fingertip, delta * 30);
+        const magPower = note.magnetPower ?? 30;
+        groupRef.current.position.lerp(trackingHand.fingertip, delta * magPower);
         const dist = groupRef.current.position.distanceTo(trackingHand.fingertip);
         // タクトに激突するか、一定時間(0.3秒)追尾したら強制的に爆発させる（無限ループ軌道による処理落ち防止）
         if (dist < 0.5 || magnetTimeRef.current > 0.3) {
@@ -246,8 +247,9 @@ const Note = memo(function Note({ note, positionRef, handsDataRef, onHit, onMiss
       return;
     }
 
+    const noteTimingWindow = note.timingWindow ?? HIT_TIMING_WINDOW;
     const timeDiff = Math.abs(now - note.startTime);
-    if (timeDiff < HIT_TIMING_WINDOW && !resolvedRef.current) {
+    if (timeDiff < noteTimingWindow && !resolvedRef.current) {
       const notePos = groupRef.current.position;
       
       // note.hand で指定された手だけをチェックする
@@ -259,8 +261,9 @@ const Note = memo(function Note({ note, positionRef, handsDataRef, onHit, onMiss
         const dz = notePos.z - trackingHand.fingertip.z;
         const xyDist = Math.sqrt(dx * dx + dy * dy);
 
-        // 激甘判定: X/Y半径は超広範囲、Z距離はある程度厳密にする
-        if (xyDist < HIT_DISTANCE_XY && Math.abs(dz) < HIT_DISTANCE_Z) {
+        // 難易度に応じたヒットボックス半径
+        const noteHitboxRadius = note.hitboxRadius ?? HIT_DISTANCE_XY;
+        if (xyDist < noteHitboxRadius && Math.abs(dz) < HIT_DISTANCE_Z) {
           stateRef.current = 'magnet';
           resolvedRef.current = true;
           // マグネット開始
@@ -282,9 +285,9 @@ const Note = memo(function Note({ note, positionRef, handsDataRef, onHit, onMiss
     <group>
       <RingGuide targetX={note.targetX} targetY={note.targetY} color={note.ringColor} progressRef={progressRef} stateRef={stateRef} />
 
-      <group ref={groupRef}>
+      <group ref={groupRef} visible={opacityRef.current > 0.05}>
         <mesh ref={meshRef}>
-          <sphereGeometry args={[0.3, 16, 16]} />
+          <sphereGeometry args={[0.3, 8, 8]} />
           <meshStandardMaterial
             color={note.ringColor}
             emissive={note.ringColor}
@@ -295,7 +298,7 @@ const Note = memo(function Note({ note, positionRef, handsDataRef, onHit, onMiss
           />
         </mesh>
         <mesh>
-          <sphereGeometry args={[0.5, 16, 16]} />
+          <sphereGeometry args={[0.5, 6, 6]} />
           <meshStandardMaterial
             color={note.ringColor}
             emissive={note.ringColor}
@@ -310,6 +313,7 @@ const Note = memo(function Note({ note, positionRef, handsDataRef, onHit, onMiss
           <Html
             center
             distanceFactor={10}
+            className="mikuset-note-html-orphaned-guard"
             style={{
               color: '#ffffff',
               fontSize: 34, // 大きく視認性アップ

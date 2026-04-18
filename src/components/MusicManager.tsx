@@ -2,6 +2,8 @@ import { useRef, useState, useEffect } from 'react';
 import { useMusicPlayer } from '../hooks/useMusicPlayer';
 import { useGameState } from '../hooks/useGameState';
 import { CONTEST_SONGS } from '../config/songs';
+import { DIFFICULTIES, DIFFICULTY_LEVELS } from '../config/difficulty';
+import type { DifficultyLevel } from '../config/difficulty';
 
 /**
  * MusicManager — 音楽再生制御UIコンポーネント
@@ -12,7 +14,7 @@ import { CONTEST_SONGS } from '../config/songs';
  */
 export default function MusicManager() {
   const { state, actions, positionRef, maxPositionRef } = useMusicPlayer();
-  const { actions: gameActions } = useGameState();
+  const { stateRef: gameStateRef, actions: gameActions } = useGameState();
   const [displayTime, setDisplayTime] = useState(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -26,6 +28,23 @@ export default function MusicManager() {
   const [fakeProgress, setFakeProgress] = useState(0);
 
   const isUserStopped = useRef(false);
+
+  // UI描画用のローカルstate（RefベースのgameStateと同期）
+  const [selectedDifficulty, setSelectedDifficulty] = useState<DifficultyLevel>(gameStateRef.current.currentDifficulty);
+  const [localOffsetMs, setLocalOffsetMs] = useState(gameStateRef.current.globalOffsetMs);
+
+  /** 難易度変更ハンドラ — ローカルstate + Refの両方を更新 */
+  const handleDifficultyChange = (level: DifficultyLevel) => {
+    setSelectedDifficulty(level);
+    gameActions.setDifficulty(level);
+  };
+
+  /** ラグオフセット変更ハンドラ — ローカルstate + Refの両方を更新 */
+  const handleOffsetChange = (ms: number) => {
+    const clamped = Math.max(-500, Math.min(500, ms));
+    setLocalOffsetMs(clamped);
+    gameActions.setGlobalOffsetMs(clamped);
+  };
 
   // Loading時のフェイクプログレスアニメーション
   useEffect(() => {
@@ -68,6 +87,8 @@ export default function MusicManager() {
 
   // Player側が停止（isPlaying: false）になったタイミングで、曲の最後まで来ているか判定する
   useEffect(() => {
+    // リザルト表示中は再判定しない
+    if (showResult) return;
     if (!state.isPlaying) {
       const lastWordTime = (window as unknown as Record<string, unknown>).__mikusetLastWordTime as number | undefined;
       const duration = (window as unknown as Record<string, unknown>).__mikusetVideoDuration as number | undefined;
@@ -89,7 +110,7 @@ export default function MusicManager() {
         setShowResult(true);
       }
     }
-  }, [state.isPlaying, maxPositionRef]);
+  }, [state.isPlaying, maxPositionRef, showResult]);
 
   /** カウントダウン処理 */
   useEffect(() => {
@@ -166,15 +187,14 @@ export default function MusicManager() {
       {/* ── リザルト画面オーバーレイ ───────────────────────────── */}
       {showResult && (
         <div style={{
-          position: 'absolute',
-          inset: 0,
-          zIndex: 60,
+          position: 'fixed',
+          top: 0, bottom: 0, left: 0, right: 0,
+          zIndex: 9999,
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          background: 'rgba(0, 5, 20, 0.9)',
-          backdropFilter: 'blur(10px)',
+          background: '#000000',
           animation: 'fadeIn 0.5s ease-out',
         }}>
           {/* リザルト画面専用のインラインアニメーション */}
@@ -214,6 +234,9 @@ export default function MusicManager() {
               onClick={() => {
                 setShowResult(false);
                 gameActions.reset();
+                // ★ 次の曲で誤った終了判定を防ぐためリセット
+                maxPositionRef.current = 0;
+                isUserStopped.current = true; // STARTで false に戻る
               }}
               style={{
                 padding: '16px 40px',
@@ -261,6 +284,7 @@ export default function MusicManager() {
             <select
               value={state.activeSongUrl}
               onChange={(e) => actions.selectSong(e.target.value)}
+              disabled={!state.isReady}
               style={{
                 padding: '8px 16px',
                 fontSize: 16,
@@ -281,6 +305,78 @@ export default function MusicManager() {
                 </option>
               ))}
             </select>
+          </div>
+
+          {/* 難易度選択 */}
+          <div style={{ marginBottom: 16, textAlign: 'center' }}>
+            <label style={{ color: '#aaddff', fontSize: 14, letterSpacing: 2, display: 'block', marginBottom: 8 }}>
+              DIFFICULTY
+            </label>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
+              {DIFFICULTY_LEVELS.map((level) => {
+                const cfg = DIFFICULTIES[level];
+                const isActive = selectedDifficulty === level;
+                return (
+                  <button
+                    key={level}
+                    onClick={() => handleDifficultyChange(level)}
+                    style={{
+                      padding: '6px 16px',
+                      fontSize: 13,
+                      fontWeight: isActive ? 800 : 500,
+                      color: isActive ? '#ffffff' : '#aabbcc',
+                      background: isActive
+                        ? 'linear-gradient(135deg, #00d2ff 0%, #3a7bd5 100%)'
+                        : 'rgba(30, 50, 80, 0.6)',
+                      border: isActive
+                        ? '2px solid rgba(0, 210, 255, 0.8)'
+                        : '1px solid rgba(255,255,255,0.15)',
+                      borderRadius: 20,
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease',
+                      boxShadow: isActive ? '0 4px 16px rgba(0, 210, 255, 0.3)' : 'none',
+                    }}
+                  >
+                    {cfg.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* ラグ調整 (オフセット) */}
+          <div style={{ marginBottom: 24, textAlign: 'center' }}>
+            <label style={{ color: '#aaddff', fontSize: 13, letterSpacing: 1, display: 'block', marginBottom: 6 }}>
+              ⏱ タイミング調整 (ms): <span style={{ color: '#ffffff', fontWeight: 700 }}>{localOffsetMs}</span>
+            </label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, justifyContent: 'center' }}>
+              <button
+                onClick={() => handleOffsetChange(localOffsetMs - 1)}
+                style={{
+                  width: 36, height: 36, borderRadius: '50%', border: '1px solid rgba(255,255,255,0.2)',
+                  background: 'rgba(30, 50, 80, 0.6)', color: '#ffffff', fontSize: 18, cursor: 'pointer',
+                }}
+              >−</button>
+              <input
+                type="range"
+                min={-500}
+                max={500}
+                step={1}
+                value={localOffsetMs}
+                onChange={(e) => handleOffsetChange(Number(e.target.value))}
+                style={{ width: 200, cursor: 'pointer', accentColor: '#00d2ff' }}
+              />
+              <button
+                onClick={() => handleOffsetChange(localOffsetMs + 1)}
+                style={{
+                  width: 36, height: 36, borderRadius: '50%', border: '1px solid rgba(255,255,255,0.2)',
+                  background: 'rgba(30, 50, 80, 0.6)', color: '#ffffff', fontSize: 18, cursor: 'pointer',
+                }}
+              >+</button>
+            </div>
+            <div style={{ marginTop: 4, fontSize: 11, color: '#6688aa' }}>
+              正の値 → 判定を遅らせる ／ 負の値 → 判定を早める
+            </div>
           </div>
 
           {/* 中央のSTARTボタンとローディングUI */}

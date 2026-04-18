@@ -6,13 +6,48 @@ import Note from './Note';
 import { useMusicPlayer } from '../hooks/useMusicPlayer';
 import { useGameState } from '../hooks/useGameState';
 import type { NoteData } from '../types/note';
+import { DIFFICULTIES } from '../config/difficulty';
 import type { BothHandsDataRef } from '../types/hand';
 
 // ---------------------------------------------------------------------------
 // 定数
 // ---------------------------------------------------------------------------
 
-const SPAWN_AHEAD_MS = 2000;
+const DEFAULT_SPAWN_AHEAD_MS = 2000;
+
+/** 同時にアクティブにできるノーツの最大数（パフォーマンス保護） */
+const MAX_ACTIVE_NOTES = 30;
+
+/**
+ * マージユーティリティ: 複数の word/char を mergeCount 個ずつまとめて 1 ノーツに結合する
+ * sourceStartTimes: マージ元のすべてのstartTimeを保持（歌詞ハイライト用）
+ */
+interface MergedUnit {
+  text: string;
+  startTime: number;
+  endTime: number;
+  sourceStartTimes: number[];
+}
+
+function mergeUnits(
+  units: { text: string; startTime: number; endTime: number }[],
+  mergeCount: number,
+): MergedUnit[] {
+  if (mergeCount <= 1) {
+    return units.map(u => ({ ...u, sourceStartTimes: [u.startTime] }));
+  }
+  const merged: MergedUnit[] = [];
+  for (let i = 0; i < units.length; i += mergeCount) {
+    const slice = units.slice(i, i + mergeCount);
+    merged.push({
+      text: slice.map((s) => s.text).join(''),
+      startTime: slice[0].startTime,
+      endTime: slice[slice.length - 1].endTime,
+      sourceStartTimes: slice.map(s => s.startTime),
+    });
+  }
+  return merged;
+}
 
 // 左手（鏡合わせ）の指揮パターン (3x3 グリッド座標に完全準拠)
 // X: Left=-3.5, Center=-2.0, Right=-0.5
@@ -136,12 +171,12 @@ function TimingStar({
     let currentStarPos = new THREE.Vector3();
 
     if (nextIdx === 0) {
-      const spawnTime = nextWord.startTime - SPAWN_AHEAD_MS;
+      const spawnTime = nextWord.startTime - DEFAULT_SPAWN_AHEAD_MS;
       if (now < spawnTime) {
         const material = meshRef.current.material as THREE.MeshStandardMaterial;
         material.opacity = 0;
       } else {
-        const p = (now - spawnTime) / SPAWN_AHEAD_MS;
+        const p = (now - spawnTime) / DEFAULT_SPAWN_AHEAD_MS;
         const smoothP = p * p * (3 - 2 * p);
         currentStarPos.set(
           0 + (nextPos.x - 0) * smoothP,
@@ -157,10 +192,10 @@ function TimingStar({
       const prevPos = pattern[prevIdx % pattern.length];
 
       const timeToNext = nextWord.startTime - now;
-      if (timeToNext > SPAWN_AHEAD_MS) {
+      if (timeToNext > DEFAULT_SPAWN_AHEAD_MS) {
          currentStarPos.set(prevPos.x, prevPos.y, 0);
       } else {
-         const moveDuration = Math.min(nextWord.startTime - prevWord.startTime, SPAWN_AHEAD_MS);
+         const moveDuration = Math.min(nextWord.startTime - prevWord.startTime, DEFAULT_SPAWN_AHEAD_MS);
          const moveStartTime = nextWord.startTime - moveDuration;
          
          if (now < moveStartTime) {
@@ -233,9 +268,13 @@ interface NoteManagerProps {
 
 export default function NoteManager({ handsDataRef }: NoteManagerProps) {
   const { state, positionRef } = useMusicPlayer();
-  const { actions: gameActions } = useGameState();
+  const { stateRef: gameStateRef, actions: gameActions } = useGameState();
 
   const [activeNotes, setActiveNotes] = useState<NoteData[]>([]);
+  // handleHit/handleMiss内でactiveNotesを参照するためのRef
+  // ※ useCallbackの依存配列にactiveNotesを含めると全ノーツが毎フレーム再レンダリングされるため
+  const activeNotesRef = useRef<NoteData[]>([]);
+  activeNotesRef.current = activeNotes;
 
   // 左右それぞれに振り分けた歌詞リスト
   const leftWordsRef = useRef<{ text: string; startTime: number; endTime: number }[]>([]);
@@ -260,21 +299,74 @@ export default function NoteManager({ handsDataRef }: NoteManagerProps) {
       nextIndexRightRef.current = 0;
       hitWordIdsRef.current.clear(); // ★ 曲変更時にヒット済みリストをクリア
       setActiveNotes([]);
+      setTimeout(() => {
+        document.querySelectorAll('.mikuset-note-html-orphaned-guard').forEach(el => {
+          const wrapper = el.closest('div[style*="absolute"]') as HTMLElement;
+          if (wrapper) wrapper.style.display = 'none';
+          else (el as HTMLElement).style.display = 'none';
+        });
+      }, 100);
       console.log('[NoteManager] 楽曲の変更を検知。ノーツ状態をリセットしました。');
     }
   }, [state.isVideoReady]);
 
+  // 再生開始時/停止時にノーツを強制再初期化・クリアする
+  useEffect(() => {
+    if (state.isPlaying) {
+      wordsInitializedRef.current = false;
+      nextIndexLeftRef.current = 0;
+      nextIndexRightRef.current = 0;
+      setActiveNotes([]);
+      hitWordIdsRef.current.clear();
+      setTimeout(() => {
+        document.querySelectorAll('.mikuset-note-html-orphaned-guard').forEach(el => {
+          const wrapper = el.closest('div[style*="absolute"]') as HTMLElement;
+          if (wrapper) wrapper.style.display = 'none';
+          else (el as HTMLElement).style.display = 'none';
+        });
+      }, 100);
+      console.log('[NoteManager] 再生開始を検知。ノーツ状態を強制リセットしました。');
+    } else {
+      // 停止時（曲終了・STOP時）に残っているノーツとエフェクトを即座に消去
+      setActiveNotes([]);
+      hitWordIdsRef.current.clear();
+      setTimeout(() => {
+        document.querySelectorAll('.mikuset-note-html-orphaned-guard').forEach(el => {
+          const wrapper = el.closest('div[style*="absolute"]') as HTMLElement;
+          if (wrapper) wrapper.style.display = 'none';
+          else (el as HTMLElement).style.display = 'none';
+        });
+      }, 100);
+      console.log('[NoteManager] 再生停止を検知。画面上のノーツをクリアしました。');
+    }
+  }, [state.isPlaying]);
+
   useFrame(() => {
-    // 楽曲データが準備完了し、かつノーツリストが未構築の場合のみ構築する
-    if (!wordsInitializedRef.current && state.isVideoReady) {
-      const words = (window as unknown as Record<string, unknown>).__mikusetWords as
-        | { text: string; startTime: number; endTime: number }[]
-        | undefined;
-      if (words && words.length > 0) {
+    // 楽曲データが準備完了し、再生中で、かつノーツリストが未構築の場合のみ構築する
+    // ※ state.isPlaying のチェックが無いと、一時停止中に初期化→リセットが
+    //   毎フレーム繰り返されて不安定になる
+    if (!wordsInitializedRef.current && state.isVideoReady && state.isPlaying) {
+      // --- 難易度に応じたtextUnit/mergeCountで元データを取得・マージ ---
+      const gs = gameStateRef.current;
+      const diffCfg = DIFFICULTIES[gs.currentDifficulty];
+
+      let rawUnits: { text: string; startTime: number; endTime: number }[] | undefined;
+      if (diffCfg.textUnit === 'char') {
+        rawUnits = (window as unknown as Record<string, unknown>).__mikusetChars as typeof rawUnits;
+      }
+      // charデータ無しの場合、またはword単位の場合はword配列を使用
+      if (!rawUnits || rawUnits.length === 0) {
+        rawUnits = (window as unknown as Record<string, unknown>).__mikusetWords as typeof rawUnits;
+      }
+
+      if (rawUnits && rawUnits.length > 0) {
+        // マージ処理 (Easy: 3個まとめ等)
+        const units = mergeUnits(rawUnits, diffCfg.mergeCount);
+
         // ノーツを左右交互に振り分ける
-        const leftArr: typeof words = [];
-        const rightArr: typeof words = [];
-        words.forEach((w, i) => {
+        const leftArr: typeof units = [];
+        const rightArr: typeof units = [];
+        units.forEach((w, i) => {
           if (i % 2 === 0) {
             rightArr.push(w);
           } else {
@@ -294,21 +386,26 @@ export default function NoteManager({ handsDataRef }: NoteManagerProps) {
         nextIndexRightRef.current = ri;
 
         wordsInitializedRef.current = true;
-        console.log(`[NoteManager] 右手用 ${rightArr.length} 個、左手用 ${leftArr.length} 個に分割。再生位置 ${Math.round(now / 1000)}s からインデックス開始 (L=${li}, R=${ri})`);
+        console.log(`[NoteManager] 難易度=${gs.currentDifficulty} (${diffCfg.textUnit}×merge${diffCfg.mergeCount}) → 右手用 ${rightArr.length} 個、左手用 ${leftArr.length} 個に分割。再生位置 ${Math.round(now / 1000)}s からインデックス開始 (L=${li}, R=${ri})`);
       }
       return;
     }
 
-    const now = positionRef.current;
-    if (now <= 0) {
-      if (nextIndexLeftRef.current > 0 || nextIndexRightRef.current > 0) {
-        // 曲がリセットされて最初に戻った場合
-        wordsInitializedRef.current = false;
-        setActiveNotes([]);
-        hitWordIdsRef.current.clear();
-      }
+    // 再生中でなければ何もしない（一時停止中のフレームで状態を壊さない）
+    if (!state.isPlaying) return;
+
+    // ラグオフセットを加味した現在時刻
+    const rawNow = positionRef.current;
+    const offsetMs = gameStateRef.current.globalOffsetMs;
+    const now = rawNow + offsetMs;
+    if (rawNow <= 0) {
+      // 再生位置が0以下ならノーツ生成はスキップ（再生開始直後の過渡期）
       return;
     }
+
+    // 難易度パラメータ（ノーツ生成時に注入する物理値）
+    const diffCfg = DIFFICULTIES[gameStateRef.current.currentDifficulty];
+    const SPAWN_AHEAD_MS = diffCfg.speed;
 
     // 再生状態でのシーク・巻き戻しを検知してインデックスを回復する
     const prevL = leftWordsRef.current[nextIndexLeftRef.current - 1];
@@ -343,11 +440,16 @@ export default function NoteManager({ handsDataRef }: NoteManagerProps) {
           spawnTime,
           hit: false,
           missed: false,
-          targetX: ringPosLeft.x,
+          targetX: Math.max(-4.5, Math.min(4.5, ringPosLeft.x)),
           targetY: ringPosLeft.y,
           originX: 0, 
           originY: 0,
           ringColor: '#66aaff',
+          speed: diffCfg.speed,
+          hitboxRadius: diffCfg.hitboxRadius,
+          magnetPower: diffCfg.magnetPower,
+          timingWindow: diffCfg.timingWindow,
+          sourceStartTimes: word.sourceStartTimes,
         };
         newNotesBatch.push(leftNote);
         nextIndexLeftRef.current += 1;
@@ -373,11 +475,16 @@ export default function NoteManager({ handsDataRef }: NoteManagerProps) {
           spawnTime,
           hit: false,
           missed: false,
-          targetX: ringPosRight.x,
+          targetX: Math.max(-4.5, Math.min(4.5, ringPosRight.x)),
           targetY: ringPosRight.y,
           originX: 0,
           originY: 0,
           ringColor: '#ff66aa',
+          speed: diffCfg.speed,
+          hitboxRadius: diffCfg.hitboxRadius,
+          magnetPower: diffCfg.magnetPower,
+          timingWindow: diffCfg.timingWindow,
+          sourceStartTimes: word.sourceStartTimes,
         };
         newNotesBatch.push(rightNote);
         nextIndexRightRef.current += 1;
@@ -387,28 +494,41 @@ export default function NoteManager({ handsDataRef }: NoteManagerProps) {
     }
 
     if (newNotesBatch.length > 0) {
-      setActiveNotes((prev) => [...prev, ...newNotesBatch]);
+      setActiveNotes((prev) => {
+        const combined = [...prev, ...newNotesBatch];
+        // パフォーマンス保護: 難易度に応じた最大アクティブノーツ数
+        const diffCfgCurrent = DIFFICULTIES[gameStateRef.current.currentDifficulty];
+        const maxNotes = diffCfgCurrent.textUnit === 'char' ? 20 : MAX_ACTIVE_NOTES;
+        if (combined.length > maxNotes) {
+          return combined.slice(combined.length - maxNotes);
+        }
+        return combined;
+      });
     }
   });
 
   const handleHit = useCallback((id: string, _hand: 'left'|'right') => {
     gameActions.onHit();
-    // note.id の形式: "note-left-{startTime}-{text}" → wordIdとしてstartTime+textを使用
-    // フレーズ内のwordIdと照合するため、startTimeをキーとして登録する
     const startTimeMatch = id.match(/note-(?:left|right)-(\d+)-/);
     if (startTimeMatch) {
-      const startTime = parseInt(startTimeMatch[1], 10);
-      // __mikusetPhrases のwordIdと合わせるため「startTime」をキーに保存
-      hitWordIdsRef.current.add(String(startTime));
+      const noteStartTime = parseInt(startTimeMatch[1], 10);
+      hitWordIdsRef.current.add(String(noteStartTime));
+
+      // マージされたノーツの場合、元のソースWord全てのstartTimeも登録する
+      const hitNote = activeNotesRef.current.find(n => n.id === id);
+      if (hitNote?.sourceStartTimes) {
+        hitNote.sourceStartTimes.forEach(st => hitWordIdsRef.current.add(String(st)));
+      }
     }
     setActiveNotes((prev) => prev.map((n) => (n.id === id ? { ...n, hit: true } : n)));
-    setTimeout(() => setActiveNotes((prev) => prev.filter((n) => n.id !== id)), 1500);
+    setTimeout(() => setActiveNotes((prev) => prev.filter((n) => n.id !== id)), 600);
   }, [gameActions]);
 
   const handleMiss = useCallback((id: string, _hand: 'left'|'right') => {
     gameActions.onMiss();
     setActiveNotes((prev) => prev.map((n) => (n.id === id ? { ...n, missed: true } : n)));
-    setTimeout(() => setActiveNotes((prev) => prev.filter((n) => n.id !== id)), 800);
+    // ミスアニメーション後に除去（短縮: 800→400ms）
+    setTimeout(() => setActiveNotes((prev) => prev.filter((n) => n.id !== id)), 400);
   }, [gameActions]);
 
   return (

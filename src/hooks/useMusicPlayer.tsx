@@ -224,6 +224,33 @@ export function MusicProvider({ children }: MusicProviderProps) {
         (window as unknown as Record<string, unknown>).__mikusetLastWordTime = lastWordTime;
         (window as unknown as Record<string, unknown>).__mikusetVideoDuration = video.duration;
 
+        // Char（文字）単位のリストも構築（Hard / Very Hard 用）
+        // Word → Char の階層を辿って取得する（video.firstChar だと
+        // タイミングデータが欠落する場合があるため）
+        const chars: { text: string; startTime: number; endTime: number }[] = [];
+        let cw = video.firstWord;
+        while (cw) {
+          let ch = cw.firstChar;
+          while (ch) {
+            if (
+              ch.text && ch.text.trim() !== '' &&
+              typeof ch.startTime === 'number' && !isNaN(ch.startTime) &&
+              typeof ch.endTime === 'number' && !isNaN(ch.endTime) &&
+              ch.endTime > ch.startTime
+            ) {
+              chars.push({
+                text: ch.text,
+                startTime: ch.startTime,
+                endTime: ch.endTime,
+              });
+            }
+            ch = ch.next;
+          }
+          cw = cw.next;
+        }
+        (window as unknown as Record<string, unknown>).__mikusetChars = chars;
+        console.log(`[MusicManager] ${chars.length} 個のCharデータを公開`);
+
         // フレーズ情報の取得（PhraseDisplayで使用）
         const phrases: {
           id: string;
@@ -339,6 +366,10 @@ export function MusicProvider({ children }: MusicProviderProps) {
     const isFinished = player.video && positionRef.current >= player.video.endTime - 500;
     const shouldRestart = forceStart === true || positionRef.current === 0 || isFinished;
 
+    // ★ 再生前にpositionRefとmaxPositionRefを明示的にリセットする
+    positionRef.current = 0;
+    maxPositionRef.current = 0;
+
     if (shouldRestart) {
       if (firstWordTime !== undefined && firstWordTime > NOTE_LEAD_MS) {
         const seekTo = Math.max(0, firstWordTime - NOTE_LEAD_MS);
@@ -351,7 +382,6 @@ export function MusicProvider({ children }: MusicProviderProps) {
     
     player.requestPlay();
 
-    maxPositionRef.current = 0; // 新規再生時に最大位置をリセット
     setState((prev) => ({ ...prev, isTrackingTest: false, calibrationStep: 'NONE' }));
   }, []);
 
@@ -360,7 +390,15 @@ export function MusicProvider({ children }: MusicProviderProps) {
   }, []);
 
   const stop = useCallback(() => {
-    playerRef.current?.requestStop();
+    const player = playerRef.current;
+    if (!player) return;
+    // requestStop() は TextAlive の内部分析エンジンを完全停止させてしまい、
+    // 再度 requestPlay() しても onTimeUpdate が発火しなくなる。
+    // そのため requestPause + requestMediaSeek(0) で「一時停止＋先頭に戻す」方式にする。
+    player.requestPause();
+    player.requestMediaSeek(0);
+    positionRef.current = 0;
+    maxPositionRef.current = 0;
   }, []);
 
   const togglePlayPause = useCallback(() => {

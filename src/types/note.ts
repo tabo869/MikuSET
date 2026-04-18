@@ -30,4 +30,18 @@ export interface NoteData {
   originY: number;
   /** リングの蛍光色（HEX） */
   ringColor: string;
+
+  // ---- 難易度パラメータ（省略時はデフォルト定数を使用） ----
+  /** ノーツの到達時間（ms） */
+  speed?: number;
+  /** 当たり判定の X/Y 半径 */
+  hitboxRadius?: number;
+  /** 吸着速度の倍率 */
+  magnetPower?: number;
+  /** タイミングウィンドウ（ms） */
+  timingWindow?: number;
+
+  // ---- マージ元追跡（歌詞ハイライト用） ----
+  /** マージされた元ユニットのstartTime一覧 */
+  sourceStartTimes?: number[];
 }

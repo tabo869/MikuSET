@@ -5,6 +5,7 @@ import {
   useRef,
   type ReactNode,
 } from 'react';
+import type { DifficultyLevel } from '../config/difficulty';
 
 // ---------------------------------------------------------------------------
 // 型定義
@@ -18,6 +19,10 @@ export interface GameState {
   hits: number;
   misses: number;
   productionLevel: number;
+  /** 現在の難易度 */
+  currentDifficulty: DifficultyLevel;
+  /** ラグ調整オフセット（ms） */
+  globalOffsetMs: number;
 }
 
 // ... (省略箇所なしで再記述)
@@ -25,6 +30,10 @@ export interface GameActions {
   onHit: () => void;
   onMiss: () => void;
   reset: () => void;
+  /** 難易度を変更する */
+  setDifficulty: (level: DifficultyLevel) => void;
+  /** ラグオフセットを変更する（ms） */
+  setGlobalOffsetMs: (ms: number) => void;
 }
 
 export interface GameStateContextValue {
@@ -40,6 +49,8 @@ const INITIAL_STATE: GameState = {
   hits: 0,
   misses: 0,
   productionLevel: 1,
+  currentDifficulty: 'Normal',
+  globalOffsetMs: 0,
 };
 
 const BASE_SCORE = 100;
@@ -91,7 +102,22 @@ export function GameStateProvider({ children }: GameStateProviderProps) {
   }, [notifyListeners]);
 
   const reset = useCallback(() => {
-    stateRef.current = { ...INITIAL_STATE };
+    const prev = stateRef.current;
+    stateRef.current = {
+      ...INITIAL_STATE,
+      currentDifficulty: prev.currentDifficulty,
+      globalOffsetMs: prev.globalOffsetMs,
+    };
+    notifyListeners();
+  }, [notifyListeners]);
+
+  const setDifficulty = useCallback((level: DifficultyLevel) => {
+    stateRef.current.currentDifficulty = level;
+    notifyListeners();
+  }, [notifyListeners]);
+
+  const setGlobalOffsetMs = useCallback((ms: number) => {
+    stateRef.current.globalOffsetMs = ms;
     notifyListeners();
   }, [notifyListeners]);
 
@@ -101,7 +127,7 @@ export function GameStateProvider({ children }: GameStateProviderProps) {
 
   const contextValue: GameStateContextValue = {
     stateRef,
-    actions: { onHit, onMiss, reset },
+    actions: { onHit, onMiss, reset, setDifficulty, setGlobalOffsetMs },
     getSnapshot,
   };
 
