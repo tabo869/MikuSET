@@ -27,12 +27,21 @@ interface GameState {
   hits: number;            // 累積ヒット数
   misses: number;          // 累積ミス数
   productionLevel: number; // 演出レベル (1〜4)
+  currentDifficulty: DifficultyLevel; // 現在の難易度
+  globalOffsetMs: number;  // 判定位置のオフセット調整
+  isCleared: boolean;      // 楽曲完走フラグ
+  isTrackingTest: boolean; // トラッキングテスト表示フラグ
+  calibrationData: CalibrationData; // 四隅座標
 }
 
 interface GameActions {
   onHit: () => void;       // ヒット判定時の更新処理
   onMiss: () => void;      // ミス判定時の更新処理 (コンボリセット等)
-  reset: () => void;       // トータルのスコア・コンボのリセット
+  reset: () => void;       // 全データの初期化
+  setDifficulty: (diff: DifficultyLevel) => void;
+  setGlobalOffset: (ms: number) => void;
+  setCalibration: (data: CalibrationData) => void;
+  setCleared: (cleared: boolean) => void;
 }
 ```
 
@@ -56,15 +65,9 @@ interface MusicPlayerState {
   isPlaying: boolean;          // 再生中フラグ
   isReady: boolean;            // TextAliveからの再生準備完了フラグ
   isVideoReady: boolean;       // 楽曲データ（歌詞・コード等）準備完了フラグ
-  isTrackingTest: boolean;     // カメラテストモードの有効化
-  calibrationStep: string;     // ハンドトラッキングのキャリブレーション状態
-  calibrationData: object;     // キャリブレーション補正データ
   activeSongUrl: string;       // 現在選択中の楽曲(Piapro URL)
-  isAutoPlayMode: boolean;     // オートプレイ（デモ）モードの有効化
-  isVirtualInputMode: boolean; // バーチャル入力（キーボード/画面タップ）の有効化
+  isAutoPlayMode: boolean;     // オートプレイ（デモ）モード
 }
-
-// ※ アクションとしては play, pause, stop, togglePlayPause, toggleVirtualInputMode 等が含まれる
 ```
 
 ---
@@ -135,17 +138,21 @@ interface HandPosition {
 ### 3.2. 歌詞イベント情報: `NoteData`
 ```typescript
 interface NoteData {
-  id: string;              // Word単位やフレーズ単位でのユニークID
-  hand: 'left' | 'right';  // このノートを叩くべき手（赤/青など）
-  text: string;            // 表示する歌詞テキスト
-  startTime: number;       // TextAliveでの発声開始タイミング(ms)
-  endTime: number;         // TextAliveでの発声終了タイミング(ms)
-  spawnTime: number;       // 画面奥に出現するタイミング（startTimeから逆算して決定）
-  targetX: number;         // 手前側のヒット判定位置（X座標）
-  targetY: number;         // 手前側のヒット判定位置（Y座標）
-  originX: number;         // 奥の出現位置（X座標）
-  originY: number;         // 奥の出現位置（Y座標）
-  ringColor: string;       // 左右手に合わせた判別色（HEXColor）
+  id: string;              // 歌詞単位のユニークID
+  hand: 'left' | 'right';  // 対象の手
+  text: string;            // 歌詞テキスト
+  startTime: number;       // 発声開始(ms)
+  endTime: number;         // 発声終了(ms)
+  spawnTime: number;       // 出現タイミング(ms)
+  targetX: number;         // 判定X位置
+  targetY: number;         // 判定Y位置
+  originX: number, originY: number; // 出現位置
+  ringColor: string;       
+  speed: number;           // 到達時間(ms)
+  hitboxRadius: number;    // 判定半径
+  magnetPower: number;     // 吸着強度
+  timingWindow: number;    // 判定猶予(ms)
+  sourceStartTimes?: number[]; // 元単語ID（マージ時）
 }
 ```
 

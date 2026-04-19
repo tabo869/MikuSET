@@ -79,9 +79,12 @@ export function GameStateProvider({ children }: GameStateProviderProps) {
       s.maxCombo = s.combo;
     }
     
-    // 演出レベルの計算
-    // 初期/ミス時は1, コンボ開始時は2, 以降10ごとに上がる
-    if (s.combo >= 20) s.productionLevel = 4;
+    // 演出レベルの計算 (最大8段階に変更)
+    if (s.combo >= 80) s.productionLevel = 8;
+    else if (s.combo >= 60) s.productionLevel = 7;
+    else if (s.combo >= 40) s.productionLevel = 6;
+    else if (s.combo >= 30) s.productionLevel = 5;
+    else if (s.combo >= 20) s.productionLevel = 4;
     else if (s.combo >= 10) s.productionLevel = 3;
     else if (s.combo >= 1) s.productionLevel = 2;
     else s.productionLevel = 1;

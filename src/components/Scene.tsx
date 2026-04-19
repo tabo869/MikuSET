@@ -175,11 +175,13 @@ export default function Scene() {
         {/* プレイエリア枠（左手:ブルー / 右手:ピンク） */}
         <PlayAreaFrame />
 
-        {/* 左手のBaton */}
-        <Baton handDataRef={leftHandRef} trailColor="#66aaff" />
-
-        {/* 右手のBaton */}
-        <Baton handDataRef={rightHandRef} trailColor="#ff66aa" />
+        {/* Baton (指揮棒と軌跡) - トップ画面ではアンマウントし、前回のTrailキャッシュをリセット */}
+        {(state.isPlaying || state.isTrackingTest) && (
+          <>
+            <Baton handDataRef={leftHandRef} trailColor="#66aaff" />
+            <Baton handDataRef={rightHandRef} trailColor="#ff66aa" />
+          </>
+        )}
 
         {/* ノート管理 */}
         <NoteManager handsDataRef={handsDataRef} />

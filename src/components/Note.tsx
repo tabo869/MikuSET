@@ -1,4 +1,4 @@
-import { useRef, memo } from 'react';
+import { useRef, useEffect, memo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 import * as THREE from 'three';
@@ -166,6 +166,7 @@ interface NoteProps {
 }
 
 const Note = memo(function Note({ note, positionRef, handsDataRef, onHit, onMiss, isAutoPlayMode = false }: NoteProps) {
+  const outerGroupRef = useRef<THREE.Group>(null!);
   const groupRef = useRef<THREE.Group>(null!);
   const meshRef = useRef<THREE.Mesh>(null!);
   const stateRef = useRef<'active' | 'magnet' | 'hit' | 'missed'>('active');
@@ -175,6 +176,27 @@ const Note = memo(function Note({ note, positionRef, handsDataRef, onHit, onMiss
   const hitPosRef = useRef(new THREE.Vector3());
   const resolvedRef = useRef(false);
   const magnetTimeRef = useRef(0);
+
+  // ★ R3Fのリコンサイラーがアンマウント時にThree.jsオブジェクトを取りこぼした場合のセーフティネット
+  useEffect(() => {
+    return () => {
+      const group = outerGroupRef.current;
+      if (group) {
+        // シーングラフから強制除去（visible=falseも併用）
+        group.visible = false;
+        group.parent?.remove(group);
+        // GPUリソースの解放
+        group.traverse((child: THREE.Object3D) => {
+          if (child instanceof THREE.Mesh) {
+            child.geometry?.dispose();
+            const mat = child.material;
+            if (Array.isArray(mat)) mat.forEach(m => m.dispose());
+            else if (mat) mat.dispose();
+          }
+        });
+      }
+    };
+  }, []);
 
   useFrame((_s, delta) => {
     if (!groupRef.current) return;
@@ -188,12 +210,17 @@ const Note = memo(function Note({ note, positionRef, handsDataRef, onHit, onMiss
     if (stateRef.current === 'hit') {
       opacityRef.current = Math.max(0, opacityRef.current - delta * 6);
       if (meshRef.current) (meshRef.current.material as THREE.MeshStandardMaterial).opacity = opacityRef.current * 0.6;
+      // ★ 外側グロー球体はrefがなくuseFrameで更新できないため、
+      //    グループ全体のvisibilityで一括制御して残像を防止する
+      if (groupRef.current) groupRef.current.visible = opacityRef.current > 0.05;
       return;
     }
 
     if (stateRef.current === 'missed') {
       opacityRef.current = Math.max(0, opacityRef.current - delta * 3);
       if (meshRef.current) (meshRef.current.material as THREE.MeshStandardMaterial).opacity = opacityRef.current * 0.3;
+      // ★ ミス時も同様にグループ全体を非表示にする
+      if (groupRef.current) groupRef.current.visible = opacityRef.current > 0.05;
       return;
     }
 
@@ -282,7 +309,7 @@ const Note = memo(function Note({ note, positionRef, handsDataRef, onHit, onMiss
   const isNearJudge = progressRef.current > 0.7;
 
   return (
-    <group>
+    <group ref={outerGroupRef}>
       <RingGuide targetX={note.targetX} targetY={note.targetY} color={note.ringColor} progressRef={progressRef} stateRef={stateRef} />
 
       <group ref={groupRef} visible={opacityRef.current > 0.05}>

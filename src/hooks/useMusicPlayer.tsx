@@ -397,6 +397,9 @@ export function MusicProvider({ children }: MusicProviderProps) {
     // そのため requestPause + requestMediaSeek(0) で「一時停止＋先頭に戻す」方式にする。
     player.requestPause();
     player.requestMediaSeek(0);
+    // ★ TextAliveの非同期イベントに頼らず、ここで強制的にisPlayingを同期的にfalseにする。
+    //   これによりNoteManager等のライフサイクルが確実にアンマウントリセットを処理できる
+    setState((prev) => ({ ...prev, isPlaying: false, isTrackingTest: false, calibrationStep: 'NONE' }));
     positionRef.current = 0;
     maxPositionRef.current = 0;
   }, []);

@@ -107,6 +107,9 @@ export default function MusicManager() {
       }
       
       if (isCleared) {
+        // ★ 演出レベルだけを即座にリセット（スコア・コンボはリザルト表示に必要なため保持）
+        // Ref直書きにより、次のuseFrameで各演出コンポーネントが自律的にエフェクトを非表示にする
+        gameStateRef.current.productionLevel = 1;
         setShowResult(true);
       }
     }
@@ -139,6 +142,7 @@ export default function MusicManager() {
   /** 中断（ストップ）ハンドラ */
   const handleStop = () => {
     isUserStopped.current = true;
+    gameActions.reset(); // ★追加: 途中リタイア時もコンボや演出レベル(productionLevel)を確実にリセット
     actions.stop(); // 曲の再生を停止し、位置を0に戻す
   };
 
@@ -237,6 +241,7 @@ export default function MusicManager() {
                 // ★ 次の曲で誤った終了判定を防ぐためリセット
                 maxPositionRef.current = 0;
                 isUserStopped.current = true; // STARTで false に戻る
+                actions.stop(); // 確実に再生を停止し、NoteManagerのマウントを解除する
               }}
               style={{
                 padding: '16px 40px',

@@ -1,31 +1,33 @@
 # 詳細設計書: `src/components/Note.tsx`
 
-## `function Note({ note, positionRef, handsDataRef, onHit, onMiss, isAutoPlayMode = false }: NoteProps)`
-* **概要**: 個別に降ってくる歌詞ノートの3Dメッシュを描画し、位置補完、当たり判定（3D物理距離に基づく交差判定）を行う。
-* **パラメータ**:
-  * `note` (NoteData): 描画対象となるノーツの初期座標・色・歌詞テキスト情報の塊。
-  * `positionRef` (React.RefObject<number>): 楽曲の現在進行時刻（ms）。再描画なしで高速参照される。
-  * `handsDataRef` (BothHandsDataRef): 当たり判定を照合するための両手のトラッキング情報。
-  * `onHit` ((id: string, hand: 'left'|'right') => void): 判定条件を満たした場合のコールバック。
-  * `onMiss` ((id: string, hand: 'left'|'right') => void): 見逃した場合のコールバック。
-  * `isAutoPlayMode` (boolean): デモ表示等のため、タイミングが合えば自動ヒットさせるフラグ。
-* **戻り値**: 歌詞テキストを含む 3Dオブジェクトの `JSX.Element`。
+## `function Note(props: NoteProps)`
 
-### 内部関数 (Internal Functions)
+### 1. 概要
+個別の歌詞データを 3D オブジェクトとして描画し、時間経過に応じたアニメーションと、プレイヤーの手との「当たり判定」を担当します。
 
-#### `function HitEffect({ position, color, onComplete }: { position: THREE.Vector3; color: string; onComplete: () => void })`
-* **概要**: ノーツがヒットした際に描画されるパーティクル四散エフェクト。
-* **パラメータ**:
-  * `position` (THREE.Vector3): 爆発エフェクトを発生させる3D中心座標。
-  * `color` (string): パーティクルの発光色。
-  * `onComplete` (() => void): エフェクト終了時に親に通知するコールバック。
-* **戻り値**: パーティクルメッシュの `JSX.Element`。
+### 2. 判定ロジック仕様
 
-#### `function RingGuide({ targetX, targetY, color, progressRef, stateRef }: { targetX: number; targetY: number; color: string; progressRef: React.RefObject<number>; stateRef: React.MutableRefObject<'active' | 'magnet' | 'hit' | 'missed'> })`
-* **概要**: 判定目標タイミングに向けて、後方から収縮してくるジャストタイミングガイドリングを描画する。
-* **パラメータ**:
-  * `targetX`, `targetY` (number): 目標のX/Y絶対座標。
-  * `color` (string): リング基調色。
-  * `progressRef` (React.RefObject<number>): 進行度（0〜1）の可変参照。
-  * `stateRef`: ノートの現在の進行状態ステート。
-* **戻り値**: トーラス状リングの `JSX.Element`。
+#### 2.1. 3D 空間当たり判定 (Collision)
+- **判定手法**: 3D 空間における `fingertip` (指先座標) と `targetX/Y` (判定中心) のユークリッド距離を計算する。
+- **ヒストリ判定**: 前フレームの座標と現フレームの座標を線分として捉え、判定中心の球体 (`hitboxRadius`) に掠めたかを判定の根拠とする（高速移動時のすり抜け防止）。
+- **タイミングウィンドウ**: 歌詞の開始時刻 (`startTime`) に対して、難易度設定の `timingWindow` (ms) の範囲内、かつ Z=0 (判定ライン) 付近にある場合のみヒットを許可する。
+
+#### 2.2. マグネット吸着 (Magnetism)
+- **動作**: プレイヤーの手がノーツの一定距離内にあり、かつヒット可能時間が近い場合、ノーツの表示位置を指先座標に向かって滑らかに引き寄せる。
+- **目的**: ハンドトラッキングのノイズによる操作感の低下を補い、吸い付くような快適なプレイフィールを実現する。
+
+### 3. ビジュアル演出仕様
+
+#### 3.1. ジャストタイミングガイド (`RingGuide`)
+- 出現直後は透明な大きなリングとして描画される。
+- `startTime` に向けてリングが宿命のノーツ中心へと収縮し、重なる瞬間が「ジャストタイミング」であることを視覚的に示す。
+
+#### 3.2. ヒットエフェクト (`HitEffect`)
+- ヒット成功時、ノーツカラーに応じた光るパーティクルを指定された方向に四散させる。
+- パーティクルは GPU 負荷を考慮し、一定時間経過後に自動的に破棄されなければならない。
+
+### 4. 内部状態ステートマシン
+1. `active`: 出現中、判定待機。
+2. `magnet`: 吸着中。
+3. `hit`: 判定成功、エフェクト再生中。
+4. `missed`: 判定失敗（見逃し）、フェードアウト中。

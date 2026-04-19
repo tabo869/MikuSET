@@ -10,21 +10,27 @@
 全体の状態は React の Context API と Custom Hooks を用いて管理・提供する。
 
 ### 2.1. GameStateProvider (`useGameState.tsx`)
-ゲームの進行状況（スコア、コンボ等）を管理し、プロバイダー内で状態を保持する。
+ゲームの進行状況、難易度設定、システム全般のフラグを管理する。
 * **状態構造 (GameState)**:
-  * `score` (number): 現在のスコア
-  * `combo` (number): 現在の連続コンボ数
-  * `maxCombo` (number): プレイ中の最大コンボ数
-  * `hits` (number): ヒット総数
-  * `misses` (number): ミス総数
-  * `productionLevel` (number): 演出レベル (1〜4)
+  * `score` / `combo` / `maxCombo` / `hits` / `misses`: 成績データ。
+  * `currentDifficulty` (DifficultyLevel): 現在の難易度 (Easy/Normal/Hard/Very Hard)。
+  * `productionLevel` (number): 演出レベル (1〜4)。
+  * `globalOffsetMs` (number): 全体的な判定遅延調整（ms）。
+  * `isCleared` (boolean): 楽曲完走・クリア済みフラグ。
+  * `isTrackingTest` (boolean): カメラプレビューおよび座標表示を伴うテストモード。
+  * `calibrationData` (CalibrationData): ユーザー設定の四隅座標。
 * **アクション**:
-  * `onHit`: ヒット時の計算処理。コンボインクリメント、スコア計算（`Base(100) + Combo*10`）、演出レベルの更新を担う。
-  * `onMiss`: ミス時の処理。コンボおよび演出レベル（1にリセット）の初期化。
-  * `reset`: 全ステートの初期化。
+  * `onHit`: コンボ加算、スコア計算、および音響/視覚エフェクトのトリガー。
+  * `onMiss`: コンボリセット、演出レベルの初期低下。
 
 ### 2.2. MusicProvider (`useMusicPlayer.tsx`)
-楽曲の再生状態、再生時間、現在進行中の楽曲情報を管理する。各コンポーネントからこのロジックにアクセスし、ノートの出現タイミング等を同期する。
+`TextAlive App API` のライフサイクルと再生状態を管理する。
+* **状態 (State)**:
+  * `isPlaying`: 再生中フラグ。
+  * `isVideoReady`: 楽曲/動画読み込み完了フラグ。
+  * `isAutoPlayMode`: デモ用オートプレイモード（すべての判定を自動成功させる）。
+* **高速参照用 Ref**:
+  * `positionRef`: 再描画を介さずに、3Dレンダリングループ (rAF) から 60fps で参照できる楽曲の現在時間 (ms)。
 
 ## 3. コンポーネント設計 (Components)
 
@@ -50,31 +56,38 @@
 
 ## 4. データモデル設計
 
-### 4.1. NoteData (`types/note.ts`)
+### 4.1. NoteData (`src/types/note.ts`)
 ```typescript
 interface NoteData {
-  id: string;              // 一意のID
-  hand: 'left' | 'right';  // 対象となる手
-  text: string;            // 表示する歌詞
-  startTime: number;       // 発声開始時刻 (ms)
-  endTime: number;         // 発声終了時刻 (ms)
-  spawnTime: number;       // 出現時刻 (startTimeの数秒前)
-  targetX: number;
-  targetY: number;
-  // ... その他表示・色情報
+  id: string;
+  hand: 'left' | 'right';
+  text: string;
+  startTime: number;
+  endTime: number;
+  spawnTime: number;
+  targetX: number, targetY: number;
+  speed: number;        // 難易度依存
+  hitboxRadius: number; // 判定半径
+  magnetPower: number;  // 吸着強度
+  sourceStartTimes?: number[]; // マージされた元単語のID群
 }
 ```
 
-### 4.2. SongInfo (`config/songs.ts`)
-```typescript
-export interface SongInfo {
-  title: string;   // 曲名
-  artist: string;  // アーティスト名
-  url: string;     // 音源URL
-}
-```
+### 4.2. DifficultyConfig (`src/config/difficulty.ts`)
+難易度ごとの動的パラメータセット（`speed`, `mergeCount`, `timingWindow` 等）。
 
-## 5. モジュール間連携のフロー
+## 5. 主要アルゴリズム
+
+### 5.1. ノーツマージ・振り分けロジック (`NoteManager.tsx`)
+1. 楽曲Wordリストを難易度依存の `mergeCount` に基づきチャンク化 (`mergeUnits`)。
+2. インデックス mod 2 により「左手」「右手」へ交互にノーツを配分。
+3. `CONDUCTOR_PATTERN` (3x3グリッドベースの指揮軌道テンプレート) に基づいて `targetX/Y` を割り当て。
+
+### 5.2. 演出演出補正計算 (`StageProduction.tsx`)
+`calculateFinalLevel(baseLevel, now, choruses)`:
+- `baseLevel`: コンボ数に基づく 1〜4 のランク。
+- `now` が `choruses`（サビ区間）内の場合、`baseLevel` に関わらず強制的に `Level 4` を返す。
+- サビ終わりから一定期間はレベルを維持し、視覚的な熱量を保つ。
 1. `MusicManager` が楽曲再生をトリガー。現在再生時間(`currentTime`)を更新。
 2. `NoteManager` が `currentTime` を監視。`spawnTime` を迎えた `Note` を生成・描画。
 3. `HandTracker` / `VirtualInputManager` が入力を監視。

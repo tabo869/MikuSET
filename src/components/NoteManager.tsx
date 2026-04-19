@@ -403,6 +403,11 @@ export default function NoteManager({ handsDataRef }: NoteManagerProps) {
       return;
     }
 
+    // ★ ステージクリア後（リザルト画面表示中）は動画再生の自動ループに巻き込まれないように処理をブロック
+    if (gameStateRef.current.isCleared) {
+      return;
+    }
+
     // 難易度パラメータ（ノーツ生成時に注入する物理値）
     const diffCfg = DIFFICULTIES[gameStateRef.current.currentDifficulty];
     const SPAWN_AHEAD_MS = diffCfg.speed;

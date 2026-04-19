@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { useMusicPlayer } from '../hooks/useMusicPlayer';
 
 // ---------------------------------------------------------------------------
 // 型定義
@@ -52,6 +53,7 @@ interface DisplayLine {
 }
 
 export default function PhraseDisplay({ positionRef }: { positionRef: React.RefObject<number> }) {
+  const { state } = useMusicPlayer();
   const [pastLines, setPastLines] = useState<DisplayLine[]>([]);
 
   const sourceRef = useRef<unknown>(null);
@@ -107,7 +109,19 @@ export default function PhraseDisplay({ positionRef }: { positionRef: React.RefO
       if (now <= 0) return;
 
       const words = allWordsRef.current;
-      const offsets = wordOffsetsRef.current;
+      let offsets = wordOffsetsRef.current;
+      
+      const children = tickerRef.current ? tickerRef.current.children : null;
+      
+      // ─── 自己修復型: オフセット未計測かつDOMが存在する場合は即座に計測する ───
+      if (children && children.length > 0 && offsets.length !== children.length) {
+         offsets = [];
+         for (let i = 0; i < children.length; i++) {
+            offsets.push((children[i] as HTMLElement).offsetLeft);
+         }
+         wordOffsetsRef.current = offsets;
+      }
+
       if (offsets.length === 0) return;
 
       // 歌唱開始より少し早くハイライト＆スクロールさせる（+150msのオフセットで体感遅延を吸収）
@@ -138,38 +152,29 @@ export default function PhraseDisplay({ positionRef }: { positionRef: React.RefO
          }
       }
 
-      if (activeIdx >= 0) {
-        // 現在のWordの位置までスクロール
-        // 表示エリア幅の中央(50%)位置に現在のWordが来るように遅らせてオフセット
-        const containerWidth = tickerRef.current.parentElement?.clientWidth ?? 800;
-        const targetOffset = containerWidth * 0.5;
-        const scrollX = offsets[activeIdx] - targetOffset;
-        tickerRef.current.style.transform = `translateX(${-Math.max(0, scrollX)}px)`;
-      }
+      // ─── 修正: 開始前（activeIdx = -1）から初期表示位置を設定 ───
+      // まだ歌い出し前であっても、最初の単語(index 0)が25%の位置に来るように常時スクロールを適用する
+      const scrollActiveIdx = Math.max(0, activeIdx);
+      const containerWidth = tickerRef.current.parentElement?.clientWidth ?? 800;
+
+      // 最初の6ワードほどをかけて、ターゲットとなる画面内位置を25%から50%へスライドさせる。
+      const startOffsetRatio = 0.25;
+      const centerOffsetRatio = 0.5;
+      const transitionProgress = Math.min(1, scrollActiveIdx / 6); 
+      const currentOffsetRatio = startOffsetRatio + (centerOffsetRatio - startOffsetRatio) * transitionProgress;
+      
+      const targetOffset = containerWidth * currentOffsetRatio;
+      const scrollX = offsets[scrollActiveIdx] - targetOffset;
+
+      // 下限(0)でクリップせず、計算されたオフセットを常時適用することで、
+      // 画面表示直後から「左寄りの25%地点」にグレーアウトの歌詞が待機するようになる。
+      tickerRef.current.style.transform = `translateX(${-scrollX}px)`;
     };
 
     const interval = setInterval(updateTicker, 60);
     return () => clearInterval(interval);
   }, [positionRef]);
 
-  // ─── Word累積位置の計測 ───
-  useEffect(() => {
-    if (!tickerRef.current || allWordsRef.current.length === 0) return;
-    // DOMが描画されてからWord位置を計測する
-    const measure = () => {
-      if (!tickerRef.current) return;
-      const children = tickerRef.current.children;
-      const offsets: number[] = [];
-      for (let i = 0; i < children.length; i++) {
-        const el = children[i] as HTMLElement;
-        offsets.push(el.offsetLeft);
-      }
-      wordOffsetsRef.current = offsets;
-    };
-    // 少し遅延して計測（DOM反映待ち）
-    const timer = setTimeout(measure, 100);
-    return () => clearTimeout(timer);
-  }, [allWordsRef.current]);
 
   // ─── チャンク切り替え監視（上部スクロール用） ───
   useEffect(() => {
@@ -193,7 +198,19 @@ export default function PhraseDisplay({ positionRef }: { positionRef: React.RefO
       }
 
       const now = positionRef.current;
-      if (now <= 0) return;
+      if (now <= 10) {
+        // 再生がリセット（巻き戻し）された場合は、過去のフレーズをすべて掃除して残像を消す
+        setPastLines(prev => {
+          if (prev.length > 0) {
+            globalScrollRef.current = 0;
+            if (tickerRef.current) tickerRef.current.style.transform = 'translateX(0px)';
+            if (trackRef.current) trackRef.current.style.transform = 'translateY(0px)';
+            activeChunkIdRef.current = null;
+          }
+          return [];
+        });
+        return;
+      }
 
       const LOOK_AHEAD = 4000;
       
@@ -229,14 +246,29 @@ export default function PhraseDisplay({ positionRef }: { positionRef: React.RefO
       }
     }, 100);
     return () => clearInterval(interval);
-  }, [positionRef]);
+  }, [positionRef, state.isPlaying]); // state.isPlaying を追加
+
+  // --- 非再生時にステートをクリアし続けるセーフティ ---
+  useEffect(() => {
+    if (!state.isPlaying) {
+      setPastLines([]);
+      activeChunkIdRef.current = null;
+      globalScrollRef.current = 0;
+      if (lastTimestampRef.current !== null) {
+          lastTimestampRef.current = null;
+      }
+    }
+  }, [state.isPlaying]);
+
+  if (!state.isPlaying || !state.isVideoReady) return null;
 
   return (
     <div style={{
       position: 'absolute',
       bottom: 0, left: 0, right: 0, top: 0,
       pointerEvents: 'none',
-      zIndex: 5,
+      overflow: 'hidden',
+      zIndex: 9999,
     }}>
       
       {/* ─── 奥へ流れる過去フレーズ領域 ─── */}
@@ -320,6 +352,9 @@ export default function PhraseDisplay({ positionRef }: { positionRef: React.RefO
           width: '80%',
           overflow: 'hidden',
           position: 'relative',
+          display: 'flex',
+          justifyContent: 'flex-start',
+          alignItems: 'center',
           // 左右にフェードアウト
           maskImage: 'linear-gradient(to right, transparent 0%, black 8%, black 85%, transparent 100%)',
           WebkitMaskImage: 'linear-gradient(to right, transparent 0%, black 8%, black 85%, transparent 100%)',
