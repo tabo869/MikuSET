@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
+import { useMusicPlayer } from '../hooks/useMusicPlayer';
 import type { BothHandsDataRef } from '../types/hand';
 
 interface VirtualInputManagerProps {
@@ -109,6 +110,7 @@ RIGHT_CELLS.flat().forEach(c => {
  * - キー/タッチを離すと「未検出 (detected=false)」に戻る → auto-hit 防止
  */
 export default function VirtualInputManager({ handsDataRef, isActive }: VirtualInputManagerProps) {
+  const { state: musicState } = useMusicPlayer();
   const cellRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
   // ウィンドウサイズに基づくインセット (%)
@@ -220,8 +222,8 @@ export default function VirtualInputManager({ handsDataRef, isActive }: VirtualI
               transition: 'background 0.07s, box-shadow 0.07s',
             }}
           >
-            {cell.label}
-          </div>
+          {musicState.showInputLabels ? cell.label : ''}
+        </div>
         );
       })
     );

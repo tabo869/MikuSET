@@ -65,6 +65,12 @@ export interface MusicPlayerState {
   isAutoPlayMode: boolean;
   /** タッチパネルやキーボードでの仮想入力モード */
   isVirtualInputMode: boolean;
+  /** 言語設定 ('en' | 'ja') */
+  language: 'en' | 'ja';
+  /** キーボード入力用のラベルを表示するかどうか */
+  showInputLabels: boolean;
+  /** モバイル環境かどうか */
+  isMobile: boolean;
 }
 
 /** MusicPlayer の操作メソッド */
@@ -79,6 +85,8 @@ export interface MusicPlayerActions {
   selectSong: (url: string) => void;
   toggleAutoPlay: () => void;
   toggleVirtualInputMode: () => void;
+  setLanguage: (lang: 'en' | 'ja') => void;
+  toggleInputLabels: () => void;
 }
 
 /** Context の値 */
@@ -118,6 +126,9 @@ export function MusicProvider({ children }: MusicProviderProps) {
   const positionRef = useRef<number>(0);
   const maxPositionRef = useRef<number>(0);
 
+  // モバイル環境（スマホ/タブレット）の簡易判定
+  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
   const [state, setState] = useState<MusicPlayerState>({
     isPlaying: false,
     isReady: false,
@@ -128,7 +139,10 @@ export function MusicProvider({ children }: MusicProviderProps) {
     activeSongUrl: DEFAULT_SONG_URL,
     statusMessage: 'TextAlive Playerを初期化中...',
     isAutoPlayMode: false,
-    isVirtualInputMode: false,
+    isVirtualInputMode: isMobile,
+    language: 'en',
+    showInputLabels: !isMobile,
+    isMobile: isMobile,
   });
 
   // 初期化時にローカルストレージからキャリブレーションデータを復元
@@ -465,10 +479,18 @@ export function MusicProvider({ children }: MusicProviderProps) {
     }));
   }, []);
 
+  const setLanguage = useCallback((lang: 'en' | 'ja') => {
+    setState((prev) => ({ ...prev, language: lang }));
+  }, []);
+
+  const toggleInputLabels = useCallback(() => {
+    setState((prev) => ({ ...prev, showInputLabels: !prev.showInputLabels }));
+  }, []);
+
   // actions は固定（useCallback済み）なので一度だけ生成
   const actions = useMemo<MusicPlayerActions>(
-    () => ({ play, pause, stop, togglePlayPause, toggleTrackingTest, setCalibrationStep, setCalibrationData, selectSong, toggleAutoPlay, toggleVirtualInputMode }),
-    [play, pause, stop, togglePlayPause, toggleTrackingTest, setCalibrationStep, setCalibrationData, selectSong, toggleAutoPlay, toggleVirtualInputMode]
+    () => ({ play, pause, stop, togglePlayPause, toggleTrackingTest, setCalibrationStep, setCalibrationData, selectSong, toggleAutoPlay, toggleVirtualInputMode, setLanguage, toggleInputLabels }),
+    [play, pause, stop, togglePlayPause, toggleTrackingTest, setCalibrationStep, setCalibrationData, selectSong, toggleAutoPlay, toggleVirtualInputMode, setLanguage, toggleInputLabels]
   );
   // contextValue は state が変わった時のみ再生成
   const contextValue = useMemo<MusicPlayerContextValue>(

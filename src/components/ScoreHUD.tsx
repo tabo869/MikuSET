@@ -5,14 +5,13 @@ import { useMusicPlayer } from '../hooks/useMusicPlayer';
 
 /**
  * ScoreHUD — スコアとコンボ数を表示するヘッドアップディスプレイ
- *
- * 画面右上に配置し、ゲームプレイ中にリアルタイムで
- * スコア・コンボ数・ヒット数・ミス数を表示する。
  */
 export default function ScoreHUD() {
   const { stateRef } = useGameState();
   const { state: musicState } = useMusicPlayer();
   const [display, setDisplay] = useState<GameState>({ ...stateRef.current });
+
+  const isJa = musicState.language === 'ja';
 
   // 100msごとにUIを更新（パフォーマンスのためポーリング）
   useEffect(() => {
@@ -31,7 +30,7 @@ export default function ScoreHUD() {
         <div
           style={{
             position: 'absolute',
-            top: 24,
+            top: 'clamp(12px, 4vh, 24px)',
             left: '50%',
             transform: 'translateX(-50%)',
             zIndex: 20,
@@ -40,6 +39,7 @@ export default function ScoreHUD() {
             alignItems: 'center',
             pointerEvents: 'none',
             userSelect: 'none',
+            width: '100%',
           }}
         >
           <div
@@ -69,7 +69,7 @@ export default function ScoreHUD() {
               marginTop: 4,
             }}
           >
-            COMBO
+            {isJa ? 'コンボ' : 'COMBO'}
           </div>
         </div>
       )}
@@ -78,15 +78,16 @@ export default function ScoreHUD() {
           トップ右：スコア、ヒット/ミス、入力モード
          ======================================================== */}
       <div
+        className="hud-score-container"
         style={{
           position: 'absolute',
-          top: 16,
-          right: 16,
+          top: 'clamp(8px, 2vh, 16px)',
+          right: 'clamp(16px, 4vw, 32px)', // Paddingを増やして見切れを防止
           zIndex: 20,
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'flex-end',
-          gap: 4,
+          gap: 'clamp(2px, 0.5vh, 4px)',
           pointerEvents: 'none',
           userSelect: 'none',
         }}
@@ -109,40 +110,63 @@ export default function ScoreHUD() {
         </div>
 
         {/* ヒット/ミス カウンター */}
-        <div
-          style={{
-            fontSize: 18, // 12 -> 18 に拡大
-            fontFamily: "'Inter', 'Segoe UI', sans-serif",
-            color: 'rgba(255, 255, 255, 0.9)',
-            display: 'flex',
-            gap: 16,
-            marginTop: 8,
-            fontWeight: 700,
-            textShadow: '0 0 10px rgba(0,0,0,0.8)',
-          }}
-        >
-          <span style={{ color: '#aaddff' }}>HIT {display.hits}</span>
-          <span style={{ color: '#ff88aa' }}>MISS {display.misses}</span>
+        <div style={{
+          display: 'flex',
+          gap: 'clamp(12px, 3vw, 24px)',
+          marginTop: 'clamp(4px, 1vh, 8px)',
+          fontFamily: 'monospace',
+          fontSize: 'clamp(16px, 2.5vw, 32px)',
+          fontWeight: 700,
+          letterSpacing: '0.05em'
+        }}>
+          <div style={{ color: '#ffffff', textShadow: '0 0 10px rgba(100,200,255,0.6)' }}>
+            <span style={{ fontSize: '0.7em', color: '#88aaff', marginRight: 4 }}>HIT</span>
+            {display.hits}
+          </div>
+          <div style={{ color: '#ff4466', textShadow: '0 0 10px rgba(255,0,50,0.4)' }}>
+            <span style={{ fontSize: '0.7em', color: '#ff88aa', marginRight: 4 }}>MISS</span>
+            {display.misses}
+          </div>
         </div>
 
-        {/* 入力モードインジケーター */}
-        {(musicState.isVirtualInputMode || musicState.isAutoPlayMode) && (
+        {/* ゲージ（体力） */}
+        <div style={{
+          marginTop: 8,
+          width: 'clamp(120px, 20vw, 240px)',
+          height: 8,
+          background: 'rgba(0,0,0,0.5)',
+          borderRadius: 4,
+          overflow: 'hidden',
+          border: '1px solid rgba(255,255,255,0.2)',
+          boxShadow: '0 0 10px rgba(0,0,0,0.5)'
+        }}>
           <div style={{
-            marginTop: 8,
-            fontSize: 11,
-            fontWeight: 600,
-            fontFamily: "'Inter', 'Segoe UI', sans-serif",
-            color: 'rgba(255, 220, 100, 0.8)',
-            letterSpacing: 1,
-            background: 'rgba(50, 40, 0, 0.6)',
-            padding: '4px 8px',
+            width: `${display.health}%`,
+            height: '100%',
+            background: display.health < 30 ? '#ff3355' : display.health < 60 ? '#ffaa22' : '#22ffaa',
+            boxShadow: `0 0 15px ${display.health < 30 ? '#ff0033' : '#00ffaa'}`,
+            transition: 'width 0.3s ease, background 0.5s ease',
+          }} />
+        </div>
+
+        {/* 入力モード表示 */}
+        <div
+          style={{
+            marginTop: 'clamp(2px, 0.5vh, 6px)',
+            fontSize: 'clamp(10px, 1.2vw, 14px)',
+            fontWeight: 700,
+            color: musicState.isVirtualInputMode ? '#66ccff' : '#ff88dd',
+            textTransform: 'uppercase',
+            letterSpacing: '0.1em',
+            background: 'rgba(0, 0, 0, 0.4)',
+            padding: '2px 8px',
             borderRadius: 4,
-            border: '1px solid rgba(255, 200, 50, 0.3)',
-          }}>
-            {musicState.isVirtualInputMode && '⌨️ TOUCH/KEY'}
-            {musicState.isAutoPlayMode && ' 🤖 AUTO'}
-          </div>
-        )}
+          }}
+        >
+          {musicState.isVirtualInputMode 
+            ? (isJa ? 'タッチ/キーボード入力' : 'TOUCH / KEYBOARD MODE') 
+            : (isJa ? 'トラッキング入力' : 'TRACKING MODE')}
+        </div>
       </div>
     </>
   );

@@ -15,6 +15,10 @@ import type { DifficultyLevel } from '../config/difficulty';
 export default function MusicManager() {
   const { state, actions, positionRef, maxPositionRef } = useMusicPlayer();
   const { stateRef: gameStateRef, actions: gameActions } = useGameState();
+  
+  const isJa = state.language === 'ja';
+  const t = (ja: string, en: string) => (isJa ? ja : en);
+
   const [displayTime, setDisplayTime] = useState(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -29,9 +33,19 @@ export default function MusicManager() {
 
   const isUserStopped = useRef(false);
 
-  // UI描画用のローカルstate（RefベースのgameStateと同期）
   const [selectedDifficulty, setSelectedDifficulty] = useState<DifficultyLevel>(gameStateRef.current.currentDifficulty);
   const [localOffsetMs, setLocalOffsetMs] = useState(gameStateRef.current.globalOffsetMs);
+  
+  // UI更新用のリアクティブなゲーム状態
+  const [gs, setGs] = useState(gameStateRef.current);
+
+  // 100msごとにゲーム状態を同期（体力低下演出やゲームオーバー用）
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setGs({ ...gameStateRef.current });
+    }, 100);
+    return () => clearInterval(interval);
+  }, [gameStateRef]);
 
   /** 難易度変更ハンドラ — ローカルstate + Refの両方を更新 */
   const handleDifficultyChange = (level: DifficultyLevel) => {
@@ -94,8 +108,6 @@ export default function MusicManager() {
       const duration = (window as unknown as Record<string, unknown>).__mikusetVideoDuration as number | undefined;
       
       let isCleared = false;
-      
-      // 終了判定: TextAliveからのonTimeUpdateイベント欠落時や早めのonPause発行に備え、大幅なマージン（15000ms）を許容する
       const maxPos = maxPositionRef.current;
       
       if (!isUserStopped.current) {
@@ -107,12 +119,18 @@ export default function MusicManager() {
       }
       
       if (isCleared) {
-        // ★ 演出レベルだけを即座にリセット（スコア・コンボはリザルト表示に必要なため保持）
-        // Ref直書きにより、次のuseFrameで各演出コンポーネントが自律的にエフェクトを非表示にする
         gameStateRef.current.productionLevel = 1;
         setShowResult(true);
+        // ★ リザルト表示時に残存しているHTML要素（判定文字など）を即座に掃除
+        setTimeout(() => {
+          document.querySelectorAll('.mikuset-note-html-orphaned-guard').forEach(el => {
+            const wrapper = el.closest('div[style*="absolute"]') as HTMLElement;
+            if (wrapper) wrapper.style.display = 'none';
+          });
+        }, 0);
       }
     }
+
   }, [state.isPlaying, maxPositionRef, showResult]);
 
   /** カウントダウン処理 */
@@ -183,13 +201,34 @@ export default function MusicManager() {
             letterSpacing: 4,
             fontWeight: 300,
           }}>
-            NOW LOADING...
+            {t('読み込み中...', 'LOADING...')}
           </div>
         </div>
       )}
 
+      {/* ── 危険（体力低下）演出オーバーレイ ──────────────────── */}
+      {state.isPlaying && gs.health < 25 && (
+        <div style={{
+          position: 'fixed',
+          top: 0, left: 0, right: 0, bottom: 0,
+          pointerEvents: 'none',
+          zIndex: 100,
+          boxShadow: 'inset 0 0 100px rgba(255, 0, 0, 0.6)',
+          animation: 'dangerPulse 1s ease-in-out infinite alternate',
+        }}>
+          <style>
+            {`
+              @keyframes dangerPulse {
+                from { background: rgba(255, 0, 0, 0.05); }
+                to { background: rgba(255, 0, 0, 0.15); }
+              }
+            `}
+          </style>
+        </div>
+      )}
+
       {/* ── リザルト画面オーバーレイ ───────────────────────────── */}
-      {showResult && (
+      {(showResult || gs.isGameOver) && (
         <div style={{
           position: 'fixed',
           top: 0, bottom: 0, left: 0, right: 0,
@@ -197,7 +236,10 @@ export default function MusicManager() {
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
-          justifyContent: 'center',
+          justifyContent: 'flex-start',
+          padding: 'clamp(20px, 5vh, 60px) 20px',
+          paddingBottom: 80, // ボタンの下に余白を確保
+          overflowY: 'auto',
           background: '#000000',
           animation: 'fadeIn 0.5s ease-out',
         }}>
@@ -210,21 +252,23 @@ export default function MusicManager() {
           </style>
 
           <h2 style={{
-            color: '#aaddff',
-            fontSize: 24,
-            letterSpacing: 8,
+            color: gs.isGameOver ? '#ff4444' : '#aaddff',
+            fontSize: 32,
+            fontWeight: 900,
+            letterSpacing: gs.isGameOver ? 12 : 8,
             marginBottom: 16,
             animation: 'slideUp 0.6s ease-out',
+            textShadow: gs.isGameOver ? '0 0 20px rgba(255,0,0,0.8)' : 'none',
           }}>
-            STAGE CLEARED
+            {gs.isGameOver ? t('ゲームオーバー', 'GAME OVER') : t('ステージクリア！', 'STAGE CLEARED')}
           </h2>
           
           <div style={{
-            fontSize: 96,
+            fontSize: 'clamp(48px, 15vh, 96px)',
             fontWeight: 900,
             color: '#ffffff',
             textShadow: '0 0 40px rgba(0, 210, 255, 0.6)',
-            marginBottom: 40,
+            marginBottom: 'clamp(20px, 4vh, 40px)',
             animation: 'slideUp 0.8s ease-out',
             fontFamily: "'Inter', 'Segoe UI', sans-serif",
             fontStyle: 'italic',
@@ -237,11 +281,17 @@ export default function MusicManager() {
             <button
               onClick={() => {
                 setShowResult(false);
-                gameActions.reset();
-                // ★ 次の曲で誤った終了判定を防ぐためリセット
-                maxPositionRef.current = 0;
-                isUserStopped.current = true; // STARTで false に戻る
-                actions.stop(); // 確実に再生を停止し、NoteManagerのマウントを解除する
+                if (gs.isGameOver) {
+                  // ゲームオーバー時は即リセット
+                  gameActions.reset();
+                  maxPositionRef.current = 0;
+                  isUserStopped.current = true;
+                } else {
+                  gameActions.reset();
+                  maxPositionRef.current = 0;
+                  isUserStopped.current = true;
+                }
+                musicActions.stop(); // 確実に再生を停止し、NoteManagerのマウントを解除する
               }}
               style={{
                 padding: '16px 40px',
@@ -259,14 +309,15 @@ export default function MusicManager() {
               onMouseOver={(e) => (e.currentTarget.style.transform = 'scale(1.05)')}
               onMouseOut={(e) => (e.currentTarget.style.transform = 'scale(1)')}
             >
-              NEXT (SELECT SONG)
+              {t('次へ (曲を選択)', 'NEXT (SELECT SONG)')}
             </button>
           </div>
         </div>
       )}
 
       {/* ── スタート画面オーバーレイ（未再生・カウントダウンなし・リザルトなし時） ───── */}
-      {!state.isPlaying && countdown === null && !showResult && (
+      {!state.isPlaying && countdown === null && !showResult && !gs.isGameOver && (
+
         <div
           style={{
             position: 'absolute',
@@ -275,7 +326,9 @@ export default function MusicManager() {
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
-            justifyContent: 'center',
+            justifyContent: 'flex-start', // 中央寄せから上寄せに変更し、スクロール可能に
+            padding: '40px 20px',
+            overflowY: 'auto', // スマホ横向き等の低画面高に対応
             background: state.isTrackingTest ? 'rgba(0, 0, 0, 0.1)' : 'rgba(0, 0, 0, 0.4)',
             backdropFilter: state.isTrackingTest ? 'none' : 'blur(4px)',
             pointerEvents: 'auto',
@@ -284,7 +337,7 @@ export default function MusicManager() {
           {/* 楽曲選択ドロップダウン */}
           <div style={{ marginBottom: 32, textAlign: 'center' }}>
             <label style={{ color: '#aaddff', fontSize: 14, letterSpacing: 2, display: 'block', marginBottom: 8 }}>
-              SELECT SONG
+              {t('楽曲を選択', 'SELECT SONG')}
             </label>
             <select
               value={state.activeSongUrl}
@@ -315,7 +368,7 @@ export default function MusicManager() {
           {/* 難易度選択 */}
           <div style={{ marginBottom: 16, textAlign: 'center' }}>
             <label style={{ color: '#aaddff', fontSize: 14, letterSpacing: 2, display: 'block', marginBottom: 8 }}>
-              DIFFICULTY
+              {t('難易度', 'DIFFICULTY')}
             </label>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
               {DIFFICULTY_LEVELS.map((level) => {
@@ -352,7 +405,7 @@ export default function MusicManager() {
           {/* ラグ調整 (オフセット) */}
           <div style={{ marginBottom: 24, textAlign: 'center' }}>
             <label style={{ color: '#aaddff', fontSize: 13, letterSpacing: 1, display: 'block', marginBottom: 6 }}>
-              ⏱ タイミング調整 (ms): <span style={{ color: '#ffffff', fontWeight: 700 }}>{localOffsetMs}</span>
+              ⏱ {t('タイミング調整', 'TIMING OFFSET')} (ms): <span style={{ color: '#ffffff', fontWeight: 700 }}>{localOffsetMs}</span>
             </label>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, justifyContent: 'center' }}>
               <button
@@ -380,7 +433,7 @@ export default function MusicManager() {
               >+</button>
             </div>
             <div style={{ marginTop: 4, fontSize: 11, color: '#6688aa' }}>
-              正の値 → 判定を遅らせる ／ 負の値 → 判定を早める
+              {t('正の値 → 判定を遅らせる ／ 負の値 → 判定を早める', 'Positive: Delay timing / Negative: Early timing')}
             </div>
           </div>
 
@@ -409,7 +462,7 @@ export default function MusicManager() {
                 transform: state.isReady ? 'scale(1)' : 'scale(0.95)',
               }}
             >
-              {state.isReady ? 'START' : 'LOADING...'}
+              {state.isReady ? t('スタート', 'START') : t('読み込み中...', 'LOADING...')}
             </button>
             
             {/* ローディング時のみプログレスバーを表示 */}
@@ -435,26 +488,30 @@ export default function MusicManager() {
             )}
           </div>
 
-          {/* カメラテストボタン */}
-          <button
-            onClick={actions.toggleTrackingTest}
-            style={{
-              padding: '12px 24px',
-              fontSize: 16,
-              fontWeight: 600,
-              color: state.isTrackingTest ? '#ffffff' : '#ccddff',
-              background: state.isTrackingTest
-                ? 'rgba(255, 100, 150, 0.8)'
-                : 'rgba(30, 80, 150, 0.6)',
-              border: '1px solid rgba(255,255,255,0.2)',
-              borderRadius: 24,
-              cursor: 'pointer',
-              transition: 'all 0.3s ease',
-              backdropFilter: 'blur(4px)',
-            }}
-          >
-            {state.isTrackingTest ? '📷 カメラテストを終了' : '📷 トラッキングテスト (カメラON)'}
-          </button>
+          {/* カメラテストボタン (モバイルでは非表示) */}
+          {!state.isMobile && (
+            <button
+              onClick={actions.toggleTrackingTest}
+              style={{
+                padding: '12px 24px',
+                fontSize: 16,
+                fontWeight: 600,
+                color: state.isTrackingTest ? '#ffffff' : '#ccddff',
+                background: state.isTrackingTest
+                  ? 'rgba(255, 100, 150, 0.8)'
+                  : 'rgba(30, 80, 150, 0.6)',
+                border: '1px solid rgba(255,255,255,0.2)',
+                borderRadius: 24,
+                cursor: 'pointer',
+                transition: 'all 0.3s ease',
+                backdropFilter: 'blur(4px)',
+              }}
+            >
+              {state.isTrackingTest 
+                ? t('📷 カメラテストを終了', '📷 EXIT TRACKING TEST') 
+                : t('📷 トラッキングテスト (カメラON)', '📷 TRACKING TEST (CAMERA ON)')}
+            </button>
+          )}
 
           {/* オートプレイボタン */}
           <label style={{
@@ -477,7 +534,7 @@ export default function MusicManager() {
               onChange={actions.toggleAutoPlay}
               style={{ width: 16, height: 16, cursor: 'pointer' }}
             />
-            オートプレイ (演出確認用)
+            {t('オートプレイ (演出確認用)', 'AUTO PLAY (DEMO)')}
           </label>
 
           {/* 仮想入力（キーボード・タッチ）ボタン */}
@@ -501,11 +558,59 @@ export default function MusicManager() {
               onChange={actions.toggleVirtualInputMode}
               style={{ width: 16, height: 16, cursor: 'pointer' }}
             />
-            タッチ・キーボード操作モード (カメラOFF)
+            {t('タッチ・キーボード操作モード (カメラOFF)', 'TOUCH / KEYBOARD MODE (CAMERA OFF)')}
           </label>
 
+          {/* 言語切り替え */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 16 }}>
+            <label style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              cursor: 'pointer',
+              color: '#aaddff',
+              fontSize: 13,
+              fontWeight: 700,
+              background: 'rgba(30, 80, 150, 0.4)',
+              padding: '6px 12px',
+              borderRadius: 16,
+              border: '1px solid rgba(0, 210, 255, 0.3)'
+            }}>
+              <input 
+                type="checkbox" 
+                checked={isJa}
+                onChange={(e) => actions.setLanguage(e.target.checked ? 'ja' : 'en')}
+                style={{ width: 14, height: 14, cursor: 'pointer' }}
+              />
+              日本語 (JA)
+            </label>
 
-          {state.isTrackingTest && <CalibrationWizard />}
+            {/* アルファベット表示切り替え */}
+            <label style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              cursor: 'pointer',
+              color: '#aaddff',
+              fontSize: 13,
+              fontWeight: 700,
+              background: 'rgba(30, 80, 150, 0.4)',
+              padding: '6px 12px',
+              borderRadius: 16,
+              border: '1px solid rgba(0, 210, 255, 0.3)'
+            }}>
+              <input 
+                type="checkbox" 
+                checked={state.showInputLabels}
+                onChange={actions.toggleInputLabels}
+                style={{ width: 14, height: 14, cursor: 'pointer' }}
+              />
+              {t('ガイド文字を表示', 'SHOW ALPHABETS')}
+            </label>
+          </div>
+
+
+          {state.isTrackingTest && !state.isMobile && <CalibrationWizard />}
 
           <div style={{ marginTop: 24, color: '#aaddff', fontSize: 14, letterSpacing: 1 }}>
             {state.statusMessage}
@@ -518,12 +623,12 @@ export default function MusicManager() {
         <div
           style={{
             position: 'absolute',
-            bottom: 300, // Webカメラ映像（右下）と被らない位置まで上げる
-            right: 32,
+            bottom: 'clamp(20px, 8vh, 40px)', // 大幅に下げて見切れと重なりを防止
+            left: 'clamp(20px, 4vw, 40px)',   // 左端へ移動
             zIndex: 20,
             display: 'flex',
             flexDirection: 'column',
-            alignItems: 'flex-end',
+            alignItems: 'flex-start',         // 左寄せに変更
             gap: 12,
             pointerEvents: 'none',
           }}
@@ -562,7 +667,7 @@ export default function MusicManager() {
               }}
               title="演奏を中断する"
             >
-              STOP
+              {t('中断', 'STOP')}
             </button>
 
             {/* 時間表示 */}
@@ -616,6 +721,9 @@ const MARKER_KEYFRAMES = `
 function CalibrationWizard() {
   const { state, actions } = useMusicPlayer();
   const [points, setPoints] = useState<Record<string, { x: number; y: number }>>({});
+
+  const isJa = state.language === 'ja';
+  const t = (ja: string, en: string) => (isJa ? ja : en);
 
   useEffect(() => {
     if (state.calibrationStep === 'NONE') return;
@@ -681,6 +789,7 @@ function CalibrationWizard() {
   }, [state.calibrationStep, points, actions]);
 
   if (state.calibrationStep === 'NONE') {
+    if (state.isMobile) return null; // モバイルではキャリブレーションボタンを表示しない
     return (
       <div style={{ marginTop: 16 }}>
         <button
@@ -818,7 +927,7 @@ function CalibrationWizard() {
         boxShadow: `0 8px 32px rgba(0,0,0,0.6), 0 0 20px ${currentMarker?.color ?? '#6688ff'}44`,
       }}>
         <h3 style={{ margin: '0 0 12px 0', color: '#ffffff', fontSize: 19 }}>
-          🎯 キャリブレーション実行中
+          🎯 {t('キャリブレーション実行中', 'CALIBRATION IN PROGRESS')}
         </h3>
         <p style={{ color: '#aaddff', whiteSpace: 'pre-wrap', lineHeight: '1.7', fontSize: 15, margin: 0 }}>
           {instruction}
@@ -838,7 +947,7 @@ function CalibrationWizard() {
           ))}
         </div>
         <div style={{ marginTop: 10, fontSize: 12, color: '#6688aa' }}>
-          【スペースキー】で座標を記録します
+          {t('【スペースキー】で座標を記録します', 'Press [SPACE] to record position')}
         </div>
       </div>
     </>
@@ -858,18 +967,23 @@ function formatTime(ms: number): string {
 /** リザルト画面でスコアを表示するための内部コンポーネント */
 function ResultScore() {
   const { stateRef } = useGameState();
+  const { state: musicState } = useMusicPlayer();
   const s = stateRef.current;
+  
+  const isJa = musicState.language === 'ja';
+  const t = (ja: string, en: string) => (isJa ? ja : en);
+
   return (
     <div style={{ textAlign: 'center' }}>
       <div>{s.score.toLocaleString()}</div>
       <div style={{
-        fontSize: 24, fontWeight: 600, color: '#ffdd55', textShadow: 'none',
-        display: 'flex', gap: 40, justifyContent: 'center', marginTop: 16,
+        fontSize: 'clamp(14px, 4vw, 24px)', fontWeight: 600, color: '#ffdd55', textShadow: 'none',
+        display: 'flex', gap: 'clamp(10px, 5vw, 40px)', justifyContent: 'center', marginTop: 16,
         letterSpacing: 2, fontFamily: 'monospace'
       }}>
-        <div>MAX COMBO: {s.maxCombo}</div>
-        <div>HITS: {s.hits}</div>
-        <div style={{ color: '#ff6688' }}>MISS: {s.misses}</div>
+        <div>{t('最大コンボ', 'MAX COMBO')}: {s.maxCombo}</div>
+        <div>{t('ヒット', 'HITS')}: {s.hits}</div>
+        <div style={{ color: '#ff6688' }}>{t('ミス', 'MISS')}: {s.misses}</div>
       </div>
     </div>
   );

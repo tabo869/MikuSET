@@ -1,6 +1,6 @@
-import { useRef, useMemo, memo } from 'react';
+import { useRef, useMemo, memo, Suspense } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { CameraShake } from '@react-three/drei';
+import { CameraShake, Text } from '@react-three/drei';
 import * as THREE from 'three';
 import { useGameState } from '../hooks/useGameState';
 import { useMusicPlayer } from '../hooks/useMusicPlayer';
@@ -39,8 +39,12 @@ function DynamicLights() {
   const subSpotRightRef = useRef<THREE.SpotLight>(null!);
 
   const { stateRef } = useGameState();
-  const { positionRef } = useMusicPlayer();
+  const { state: musicState, positionRef } = useMusicPlayer();
+  const songIndex = useMemo(() => {
+    return CONTEST_SONGS.findIndex((s) => s.url === musicState.activeSongUrl);
+  }, [musicState.activeSongUrl]);
   const choruses = (window as unknown as Record<string, unknown>).__mikusetChoruses as { startTime: number; endTime: number }[] | undefined;
+
 
   useFrame((state, delta) => {
     const level = calculateFinalLevel(stateRef.current.productionLevel, positionRef.current, choruses);
@@ -80,32 +84,170 @@ function DynamicLights() {
 
     // Level 3以上でSpotLightの色を動的にブレンド
     if (level >= 3 && mainSpotRef.current) {
-      const t = state.clock.elapsedTime * 2;
-      const r = Math.sin(t) * 0.5 + 0.5;
-      const b = Math.cos(t * 1.5) * 0.5 + 0.5;
-      mainSpotRef.current.color.setRGB(r, 0.5, b);
-      if (level >= 7) {
-        // コンボMAX付近やサビ中は激しくフラッシュ
-        mainSpotRef.current.intensity += Math.sin(t * 10) * 0.5 + 0.5;
+      const isRin = songIndex === 4;
+      if (isRin) {
+        // リンの曲：青と暗いオレンジの組み合わせに変更（黄色を引き立てるため）
+        const t = state.clock.elapsedTime * 1.5;
+        const colorA = new THREE.Color("#0044ff"); // 青
+        const colorB = new THREE.Color("#cc5500"); // 暗いオレンジ
+        const mix = Math.sin(t) * 0.5 + 0.5;
+        mainSpotRef.current.color.copy(colorA).lerp(colorB, mix);
+      } else {
+        const t = state.clock.elapsedTime * 2;
+        const r = Math.sin(t) * 0.5 + 0.5;
+        const b = Math.cos(t * 1.5) * 0.5 + 0.5;
+        mainSpotRef.current.color.setRGB(r, 0.5, b);
+      }
+
+      
+      // レベルに応じたフラッシュ周期 (Stage 3 = Level 6以上で高速)
+      const flashFreq = level >= 6 ? 15 : 8;
+      const flash = Math.sin(state.clock.elapsedTime * flashFreq);
+      if (flash > 0.5) {
+        mainSpotRef.current.intensity *= 1.5;
       }
     } else if (mainSpotRef.current) {
       // 基本色に戻す
       mainSpotRef.current.color.setHex(0xffffff);
     }
+
   });
 
   return (
     <group>
       <ambientLight ref={ambientRef} intensity={0.05} />
       {/* センターライト */}
-      <spotLight ref={mainSpotRef} position={[0, 5, 5]} angle={0.5} penumbra={0.5} intensity={0} castShadow />
-      {/* サイドライト（左・青系） */}
-      <spotLight ref={subSpotLeftRef} position={[-5, 2, -2]} angle={0.8} penumbra={0.5} color="#3388ff" intensity={0} />
-      {/* サイドライト（右・ピンク系） */}
-      <spotLight ref={subSpotRightRef} position={[5, 2, -2]} angle={0.8} penumbra={0.5} color="#ff66aa" intensity={0} />
+      <spotLight ref={mainSpotRef} position={[0, 8, 2]} angle={0.4} penumbra={0.3} intensity={0} castShadow />
+      {/* サイドライト */}
+      <spotLight ref={subSpotLeftRef} position={[-8, 4, -4]} angle={0.8} penumbra={0.5} color="#33aaff" intensity={0} />
+      <spotLight ref={subSpotRightRef} position={[8, 4, -4]} angle={0.8} penumbra={0.5} color="#ff33aa" intensity={0} />
     </group>
   );
 }
+
+
+// ---------------------------------------------------------------------------
+// StageSpotlights: ステージ上部と床面に配置されたビーム演出
+// ---------------------------------------------------------------------------
+function StageSpotlights() {
+  const groupRef = useRef<THREE.Group>(null!);
+  const floorGroupRef = useRef<THREE.Group>(null!);
+  const { stateRef } = useGameState();
+  const { state: musicState, positionRef } = useMusicPlayer();
+  const songIndex = useMemo(() => {
+    return CONTEST_SONGS.findIndex((s) => s.url === musicState.activeSongUrl);
+  }, [musicState.activeSongUrl]);
+  const choruses = (window as unknown as Record<string, unknown>).__mikusetChoruses as { startTime: number; endTime: number }[] | undefined;
+
+
+  const spotlightCount = 10;
+  // 天井からのライト設定
+  const ceilingBeams = useMemo(() => {
+    return Array.from({ length: spotlightCount }).map((_, i) => ({
+      id: `ceiling-${i}`,
+      x: (i - (spotlightCount - 1) / 2) * 3,
+      y: 10,
+      z: -10,
+      angleZ: (i - (spotlightCount - 1) / 2) * 0.15, // ハの字に広げる
+      angleX: 0.5, // ステージ床の方へ向ける
+    }));
+  }, []);
+
+  // 床面からのライト（客席側へ向ける）設定
+  const floorBeams = useMemo(() => {
+    return Array.from({ length: 8 }).map((_, i) => ({
+      id: `floor-${i}`,
+      x: (i - 3.5) * 4,
+      y: -2,
+      z: -5,
+      angleX: -0.6, // 客席（手前）側へ向ける
+      angleZ: (i - 3.5) * 0.1,
+    }));
+  }, []);
+
+  useFrame((state, delta) => {
+    const level = calculateFinalLevel(stateRef.current.productionLevel, positionRef.current, choruses);
+    const t = state.clock.elapsedTime;
+
+    // 天井ライトの制御
+    if (groupRef.current) {
+      groupRef.current.children.forEach((obj, i) => {
+        const mesh = obj as THREE.Mesh;
+        const mat = mesh.material as THREE.MeshStandardMaterial;
+        let targetOpacity = 0;
+        
+        if (level >= 3) {
+          targetOpacity = level >= 6 ? (Math.sin(t * 12 + i) > 0 ? 0.4 : 0.05) : 0.15;
+          mesh.rotation.z = ceilingBeams[i].angleZ + Math.sin(t * 0.5 + i) * 0.2;
+        }
+        mat.opacity = THREE.MathUtils.lerp(mat.opacity, targetOpacity, delta * 5);
+        mesh.visible = mat.opacity > 0.01;
+      });
+    }
+
+    // 床ライトの制御
+    if (floorGroupRef.current) {
+      floorGroupRef.current.children.forEach((obj, i) => {
+        const mesh = obj as THREE.Mesh;
+        const mat = mesh.material as THREE.MeshStandardMaterial;
+        let targetOpacity = 0;
+        
+        if (level >= 5) {
+          // サビや高コンボ時のみ激しく点滅
+          const flash = Math.sin(t * 15 + i * 2);
+          targetOpacity = flash > 0.3 ? 0.3 : 0.02;
+          mesh.rotation.y = Math.sin(t * 2 + i) * 0.3;
+        }
+        mat.opacity = THREE.MathUtils.lerp(mat.opacity, targetOpacity, delta * 3);
+        mesh.visible = mat.opacity > 0.01;
+      });
+    }
+  });
+
+  return (
+    <>
+      <group ref={groupRef}>
+        {ceilingBeams.map((b) => (
+          <mesh key={b.id} position={[b.x, b.y, b.z]} rotation={[b.angleX, 0, b.angleZ]}>
+            <cylinderGeometry args={[0.1, 2.5, 30, 8]} />
+            <meshStandardMaterial 
+              transparent 
+              opacity={0} 
+              depthWrite={false} 
+              blending={THREE.AdditiveBlending} 
+              side={THREE.DoubleSide} 
+              toneMapped={false} 
+              color={songIndex === 4 ? "#0044ff" : "#aaddff"} 
+              emissive={songIndex === 4 ? "#0044ff" : "#aaddff"} 
+              emissiveIntensity={1} 
+            />
+          </mesh>
+        ))}
+      </group>
+      <group ref={floorGroupRef}>
+        {floorBeams.map((b) => (
+          <mesh key={b.id} position={[b.x, b.y, b.z]} rotation={[b.angleX, 0, b.angleZ]}>
+            <cylinderGeometry args={[0.05, 3.0, 25, 8]} />
+            <meshStandardMaterial 
+              transparent 
+              opacity={0} 
+              depthWrite={false} 
+              blending={THREE.AdditiveBlending} 
+              side={THREE.DoubleSide} 
+              toneMapped={false} 
+              color={songIndex === 4 ? "#cc5500" : "#ff66aa"} 
+              emissive={songIndex === 4 ? "#cc5500" : "#ff66aa"} 
+              emissiveIntensity={1.5} 
+            />
+          </mesh>
+        ))}
+      </group>
+
+    </>
+  );
+}
+
+
 
 // ---------------------------------------------------------------------------
 // CyberBackground: shader material によるネオングリッド
@@ -216,12 +358,13 @@ function AudiencePenlights() {
         arr.push({
             pos: new THREE.Vector3(
               x, 
-              -8 + Math.random() * 2, // 高さをさらに低くして視界をクリアに
-              -15 - Math.random() * 40 // Zは -15 〜 -55 (手前の空間を大きく空ける)
+              -12 + Math.random() * 2, // さらに低くして入力を妨げない
+              -15 - Math.random() * 45 // Zは -15 〜 -60
             ),
             phase: Math.random() * Math.PI * 2,
             speed: 1.5 + Math.random() * 2.0,
         });
+
     }
     return arr;
   }, []);
@@ -292,7 +435,8 @@ function AudiencePenlights() {
         // レベルに応じたカラーバリエーション
         // 5曲目(インデックス4)は鏡音リン、それ以外は初音ミク
         const isRin = songIndex === 4;
-        const mainColor = isRin ? 0xfcf5a7 : 0x86cecb;
+        const mainColor = isRin ? 0xffdd00 : 0x86cecb; // リンの黄色をより彩度の高いものに調整
+
         const accentColors = [0xcb213c, 0xaeb6e5, 0xebd3cf]; // MEIKO, KAITO, LUKA
 
         if (level <= 2) {
@@ -368,19 +512,17 @@ function VirtualStage() {
     return CONTEST_SONGS.findIndex((s) => s.url === musicState.activeSongUrl);
   }, [musicState.activeSongUrl]);
 
+  const lyricTextRef = useRef<any>(null!);
+
   useFrame((state, delta) => {
     if (!stageRef.current) return;
     const now = positionRef.current;
-    const level = calculateFinalLevel(stateRef.current.productionLevel, now, choruses);
     
     // 文字単位での明滅ロジック
-    let units = (window as unknown as Record<string, unknown>).__mikusetChars as { startTime: number; endTime: number }[] | undefined;
-    if (!units || units.length === 0) {
-      units = (window as unknown as Record<string, unknown>).__mikusetWords as { startTime: number; endTime: number }[] | undefined;
-    }
+    let units = (window as unknown as Record<string, unknown>).__mikusetWords as { text: string, startTime: number; endTime: number }[] | undefined;
 
     if (units && units.length > 0) {
-      // 巻き戻し検知（あるいは曲変更による配列長の変更）
+      // 巻き戻し検知
       const prevIdx = Math.max(0, charsIndexRef.current - 1);
       if (charsIndexRef.current > 0) {
           if (prevIdx >= units.length || !units[prevIdx] || now < units[prevIdx].startTime) {
@@ -395,21 +537,22 @@ function VirtualStage() {
       
       const currentUnit = units[idx];
       if (currentUnit && now >= currentUnit.startTime) {
-          // 新しい文字に到達した瞬間にパルスを1.0にする
+          // 新しいワードに到達した瞬間にパルスを1.0にする
           if (lastActiveIdxRef.current !== idx) {
               vocalPulseRef.current = 1.0;
               lastActiveIdxRef.current = idx;
           }
       }
     }
-    
-    // パルスの減衰（1文字に付き一瞬だけ光ってスッと消える）
-    vocalPulseRef.current = Math.max(0, vocalPulseRef.current - delta * 6.0);
 
-    const isRin = songIndex === 4;
-    const singerColorStr = isRin ? "#ffeeaa" : "#88ffee";
     
-    // 1. ボーカルの光の強さ (パルス連動)
+    // パルスの減衰
+    vocalPulseRef.current = Math.max(0, vocalPulseRef.current - delta * 2.0);
+
+
+
+    // ボーカルのシルエットとオーラの点滅（歌詞同期）
+
     const currentGlow = 0.1 + vocalPulseRef.current * 0.9;
     if (singerAuraRef.current) {
         singerAuraRef.current.opacity = currentGlow * 0.8;
@@ -417,92 +560,86 @@ function VirtualStage() {
     if (singerSpotRef.current) {
         singerSpotRef.current.intensity = currentGlow * 40;
     }
-
-    // 2. ボーカルコアの色
     if (singerCoreRef.current) {
-        const coreTarget = new THREE.Color("#001122").lerp(new THREE.Color("#ffffff"), vocalPulseRef.current);
+        // シルエットを強調するため、発声時でも極めて暗いグレーにとどめる（真っ黒に近い状態を維持）
+        const coreTarget = new THREE.Color("#000000").lerp(new THREE.Color("#111111"), vocalPulseRef.current);
         singerCoreRef.current.color.copy(coreTarget);
     }
 
-    // 3. ステージワイヤーの色と強さ（コンボMAX付近の派手な演出）
-    const isComboMaxLevel = level >= 7;
-    if (baseWireRef.current && screenWireRef.current) {
-        const wireColor = new THREE.Color("#660011").lerp(new THREE.Color(singerColorStr), vocalPulseRef.current * 0.7);
-        baseWireRef.current.emissive.copy(wireColor);
-        screenWireRef.current.emissive.copy(wireColor);
-        
-        // コンボMAX時はパルスに合わせて強烈に発光する
-        const targetEmissiveIntensity = isComboMaxLevel ? 1.0 + vocalPulseRef.current * 25.0 : 1.0;
-        baseWireRef.current.emissiveIntensity = THREE.MathUtils.lerp(baseWireRef.current.emissiveIntensity, targetEmissiveIntensity, delta * 15);
-        screenWireRef.current.emissiveIntensity = THREE.MathUtils.lerp(screenWireRef.current.emissiveIntensity, targetEmissiveIntensity, delta * 15);
-    }
-
-    // 4. コンボMAX用追加スポットライト（レーザービーム）の明滅
-    if (flashLightLeftRef.current && flashLightRightRef.current) {
-        // パルスに合わせて透明度を変動（最大1.0）
-        const laserOpacity = isComboMaxLevel ? vocalPulseRef.current * 1.0 : 0;
-        flashLightLeftRef.current.opacity = laserOpacity;
-        flashLightRightRef.current.opacity = laserOpacity;
-    }
   });
 
   const isRin = songIndex === 4;
   const singerColor = isRin ? "#ffeeaa" : "#88ffee";
 
   return (
-    <group ref={stageRef} position={[0, -2, -60]}>
-      {/* ステージの土台とトラス（ワイヤーフレームによるネオン表現） */}
-      <mesh position={[0, -2, 0]}>
-        <boxGeometry args={[60, 4, 20]} />
-        <meshStandardMaterial ref={baseWireRef} color="#000000" emissive="#660011" emissiveIntensity={1.0} wireframe />
+    <group ref={stageRef} position={[0, -10, -80]}>
+      {/* ステージの土台とトラス（暗い赤の静的なワイヤーフレーム） */}
+      <mesh position={[0, 0, 0]}>
+        <boxGeometry args={[160, 1.5, 40]} />
+        <meshStandardMaterial color="#000000" emissive="#220000" emissiveIntensity={1.0} wireframe />
       </mesh>
       
       {/* 後ろの巨大スクリーン的な枠 */}
-      <mesh position={[0, 10, -8]}>
-        <planeGeometry args={[50, 20]} />
-        <meshBasicMaterial color="#000511" transparent opacity={0.6} />
+      <mesh position={[0, 15, -15]}>
+        <planeGeometry args={[120, 40]} />
+        <meshBasicMaterial color="#000000" transparent opacity={0.4} />
       </mesh>
-      <mesh position={[0, 10, -8]}>
-        <boxGeometry args={[52, 22, 1]} />
-        <meshStandardMaterial ref={screenWireRef} color="#000000" emissive="#660011" emissiveIntensity={1.0} wireframe />
+      <mesh position={[0, 15, -15]}>
+        <boxGeometry args={[122, 42, 1]} />
+        <meshStandardMaterial color="#000000" emissive="#220000" emissiveIntensity={1.0} wireframe />
       </mesh>
 
-      {/* センターステージのバーチャルシンガー（光の柱） - サイズ70%に縮小 */}
-      <group position={[0, 1, 0]} scale={0.7}>
-        {/* シルエットのコア */}
-        <mesh>
-          <capsuleGeometry args={[0.5, 3, 16, 16]} />
-          <meshBasicMaterial ref={singerCoreRef} color="#001122" toneMapped={false} />
+      {/* 3D歌詞表示は削除 */}
+
+
+
+
+
+      {/* センターステージのバーチャルシンガー（ボーカルのシルエット） */}
+      <group position={[0, 1.5, 0]}>
+        {/* ボーカル本体：シルエット */}
+        <mesh scale={1.8}>
+          <capsuleGeometry args={[0.4, 2.5, 16, 16]} />
+          <meshBasicMaterial ref={singerCoreRef} color="#000000" toneMapped={false} />
         </mesh>
         
-        {/* 神々しいオーラ */}
-        <mesh>
-          <capsuleGeometry args={[1.5, 4, 16, 16]} />
-          <meshBasicMaterial ref={singerAuraRef} color={singerColor} transparent opacity={0.6} blending={THREE.AdditiveBlending} depthWrite={false} toneMapped={false} />
+        {/* スポットライトの光の筋 (上から下に広がるコーン型) */}
+        <mesh position={[0, 10, 0]} rotation={[0, 0, 0]}>
+          <cylinderGeometry args={[0.5, 5, 25, 32, 1, true]} />
+          <meshBasicMaterial 
+            ref={singerAuraRef} 
+            color={singerColor} 
+            transparent 
+            opacity={0.3} 
+            blending={THREE.AdditiveBlending} 
+            depthWrite={false} 
+            side={THREE.DoubleSide}
+            toneMapped={false} 
+          />
         </mesh>
 
-        {/* シンガーの足元の光の波及 */}
+        {/* ステージ床面の照り返し (足元を明るくして床の存在感を出す) */}
         <mesh position={[0, -1.5, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-          <circleGeometry args={[4, 32]} />
-          <meshBasicMaterial color={singerColor} transparent opacity={0.3} blending={THREE.AdditiveBlending} toneMapped={false} />
+          <circleGeometry args={[6, 32]} />
+          <meshBasicMaterial 
+            color={singerColor} 
+            transparent 
+            opacity={0.4} 
+            blending={THREE.AdditiveBlending} 
+            depthWrite={false} 
+            toneMapped={false} 
+          />
         </mesh>
         
-        {/* 強烈な光源で周囲を照らす */}
-        <pointLight ref={singerSpotRef} position={[0, 2, 0]} distance={70} intensity={30} color={singerColor} />
+        {/* 足元中心のさらに明るい点光源 */}
+        <pointLight ref={singerSpotRef} position={[0, -1, 0]} distance={40} intensity={50} color={singerColor} />
       </group>
 
-      {/* コンボMAX時用の派手なレーザーフラッシュライト（可視化ビーム） */}
-      <mesh position={[-25, 10, 40]} rotation={[1.2, 0, -0.2]}>
-        <cylinderGeometry args={[0.5, 4, 150, 16]} />
-        <meshBasicMaterial ref={flashLightLeftRef} color={singerColor} transparent opacity={0} blending={THREE.AdditiveBlending} depthWrite={false} toneMapped={false} side={THREE.DoubleSide} />
-      </mesh>
-      <mesh position={[25, 10, 40]} rotation={[1.2, 0, 0.2]}>
-        <cylinderGeometry args={[0.5, 4, 150, 16]} />
-        <meshBasicMaterial ref={flashLightRightRef} color={singerColor} transparent opacity={0} blending={THREE.AdditiveBlending} depthWrite={false} toneMapped={false} side={THREE.DoubleSide} />
-      </mesh>
     </group>
   );
 }
+
+
 
 export default memo(function StageProduction() {
   const { getSnapshot } = useGameState();
@@ -528,22 +665,25 @@ export default memo(function StageProduction() {
   const finalLevel = Math.max(baseLevel, isChorus ? 8 : 0);
   const shakeIntensity = finalLevel >= 8 ? 0.05 : (finalLevel >= 6 ? 0.02 : 0);
 
+  const level = finalLevel;
+
   return (
-    <group>
+    <>
       <DynamicLights />
       <CyberBackground />
       <AudiencePenlights />
       <VirtualStage />
-      {shakeIntensity > 0 && (
+      <StageSpotlights />
+      
+      {/* Level 8以上（極限状態/サビ中）でのみ強烈な画面揺れ */}
+      {level >= 8 && (
         <CameraShake 
-          maxYaw={shakeIntensity} 
-          maxPitch={shakeIntensity} 
-          maxRoll={shakeIntensity} 
-          yawFrequency={0.5} 
-          pitchFrequency={0.5} 
-          rollFrequency={0.5} 
+          yawFrequency={0.2} 
+          pitchFrequency={0.2} 
+          rollFrequency={0.4} 
+          intensity={0.5} 
         />
       )}
-    </group>
+    </>
   );
 });

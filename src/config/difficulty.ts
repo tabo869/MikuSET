@@ -58,10 +58,10 @@ export const DIFFICULTIES: Record<DifficultyLevel, DifficultyConfig> = {
     textUnit: 'word',
     mergeCount: 1,
     speed: 2000,
-    hitboxRadius: 5.0,
+    hitboxRadius: 5.5,
     magnetPower: 30,
     trajectoryType: 'straight',
-    timingWindow: 400,
+    timingWindow: 500,
   },
   Hard: {
     label: 'Hard — むずかしい',

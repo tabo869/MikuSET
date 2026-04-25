@@ -10,6 +10,9 @@ body {
   width: 100vw;
   height: 100vh;
   overflow: hidden;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 /*
@@ -24,6 +27,9 @@ body {
   height: 100vh;
   overflow: hidden;
   isolation: isolate;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 /*

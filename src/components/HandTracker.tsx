@@ -320,10 +320,10 @@ export default function HandTracker({ handsDataRef }: HandTrackerProps) {
         ref={videoRef}
         style={{
           position: 'absolute',
-          bottom: 16,
-          right: 16,
-          width: 160,
-          height: 120,
+          bottom: 'clamp(8px, 2vh, 16px)',
+          right: 'clamp(8px, 2vw, 16px)',
+          width: 'clamp(100px, 15vw, 160px)',
+          height: 'auto',
           borderRadius: 8,
           opacity: 0.6,
           zIndex: 10,

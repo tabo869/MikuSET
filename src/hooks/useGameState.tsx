@@ -13,11 +13,14 @@ import type { DifficultyLevel } from '../config/difficulty';
 
 /** ゲーム状態 */
 export interface GameState {
+  hits: number;
+  perfects: number;
+  misses: number;
   score: number;
   combo: number;
   maxCombo: number;
-  hits: number;
-  misses: number;
+  health: number;
+  isGameOver: boolean;
   productionLevel: number;
   /** 現在の難易度 */
   currentDifficulty: DifficultyLevel;
@@ -25,10 +28,10 @@ export interface GameState {
   globalOffsetMs: number;
 }
 
-// ... (省略箇所なしで再記述)
 export interface GameActions {
-  onHit: () => void;
-  onMiss: () => void;
+  registerHit: (isPerfect: boolean) => void;
+  registerMiss: () => void;
+  registerPenalty: () => void;
   reset: () => void;
   /** 難易度を変更する */
   setDifficulty: (level: DifficultyLevel) => void;
@@ -43,18 +46,18 @@ export interface GameStateContextValue {
 }
 
 const INITIAL_STATE: GameState = {
+  hits: 0,
+  perfects: 0,
+  misses: 0,
   score: 0,
   combo: 0,
   maxCombo: 0,
-  hits: 0,
-  misses: 0,
+  health: 100,
+  isGameOver: false,
   productionLevel: 1,
   currentDifficulty: 'Normal',
   globalOffsetMs: 0,
 };
-
-const BASE_SCORE = 100;
-const COMBO_BONUS = 10;
 
 const GameStateContext = createContext<GameStateContextValue | null>(null);
 
@@ -70,37 +73,69 @@ export function GameStateProvider({ children }: GameStateProviderProps) {
     listenersRef.current.forEach((fn) => fn());
   }, []);
 
-  const onHit = useCallback(() => {
+  const registerHit = useCallback((isPerfect: boolean) => {
     const s = stateRef.current;
-    s.combo += 1;
-    s.hits += 1;
-    s.score += BASE_SCORE + s.combo * COMBO_BONUS;
-    if (s.combo > s.maxCombo) {
-      s.maxCombo = s.combo;
-    }
-    
-    // 演出レベルの計算 (最大8段階に変更)
-    if (s.combo >= 80) s.productionLevel = 8;
-    else if (s.combo >= 60) s.productionLevel = 7;
-    else if (s.combo >= 40) s.productionLevel = 6;
-    else if (s.combo >= 30) s.productionLevel = 5;
-    else if (s.combo >= 20) s.productionLevel = 4;
-    else if (s.combo >= 10) s.productionLevel = 3;
-    else if (s.combo >= 1) s.productionLevel = 2;
-    else s.productionLevel = 1;
+    if (s.isGameOver) return;
 
-    console.log(
-      `[GameState] ✨ HIT! スコア: ${s.score} コンボ: ${s.combo} Level: ${s.productionLevel}`
-    );
+    const newCombo = s.combo + 1;
+    const baseScore = isPerfect ? 1000 : 500;
+    const comboBonus = Math.floor(newCombo / 10) * 100;
+    const addedScore = baseScore + comboBonus;
+    const newHealth = Math.min(100, s.health + (isPerfect ? 5 : 2));
+
+    stateRef.current = {
+      ...s,
+      hits: s.hits + 1,
+      perfects: isPerfect ? s.perfects + 1 : s.perfects,
+      combo: newCombo,
+      maxCombo: Math.max(s.maxCombo, newCombo),
+      score: s.score + addedScore,
+      health: newHealth,
+    };
+    
+    // 演出レベルの計算
+    if (newCombo >= 80) stateRef.current.productionLevel = 8;
+    else if (newCombo >= 60) stateRef.current.productionLevel = 7;
+    else if (newCombo >= 40) stateRef.current.productionLevel = 6;
+    else if (newCombo >= 30) stateRef.current.productionLevel = 5;
+    else if (newCombo >= 20) stateRef.current.productionLevel = 4;
+    else if (newCombo >= 10) stateRef.current.productionLevel = 3;
+    else if (newCombo >= 1) stateRef.current.productionLevel = 2;
+    else stateRef.current.productionLevel = 1;
+
     notifyListeners();
   }, [notifyListeners]);
 
-  const onMiss = useCallback(() => {
+  const registerMiss = useCallback(() => {
     const s = stateRef.current;
-    s.combo = 0;
-    s.productionLevel = 1;
-    s.misses += 1;
-    console.log(`[GameState] ✗ MISS コンボリセット Level: 1`);
+    if (s.isGameOver) return;
+
+    const newHealth = Math.max(0, s.health - 15);
+    const isGameOver = newHealth <= 0;
+
+    stateRef.current = {
+      ...s,
+      misses: s.misses + 1,
+      combo: 0,
+      productionLevel: 1,
+      health: newHealth,
+      isGameOver,
+    };
+    notifyListeners();
+  }, [notifyListeners]);
+
+  const registerPenalty = useCallback(() => {
+    const s = stateRef.current;
+    if (s.isGameOver) return;
+
+    const newHealth = Math.max(0, s.health - 5);
+    const isGameOver = newHealth <= 0;
+
+    stateRef.current = {
+      ...s,
+      health: newHealth,
+      isGameOver,
+    };
     notifyListeners();
   }, [notifyListeners]);
 
@@ -130,7 +165,7 @@ export function GameStateProvider({ children }: GameStateProviderProps) {
 
   const contextValue: GameStateContextValue = {
     stateRef,
-    actions: { onHit, onMiss, reset, setDifficulty, setGlobalOffsetMs },
+    actions: { registerHit, registerMiss, registerPenalty, reset, setDifficulty, setGlobalOffsetMs },
     getSnapshot,
   };
 

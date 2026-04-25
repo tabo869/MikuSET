@@ -274,7 +274,7 @@ export default function PhraseDisplay({ positionRef }: { positionRef: React.RefO
       {/* ─── 奥へ流れる過去フレーズ領域 ─── */}
       <div style={{
           position: 'absolute',
-          bottom: '22%', 
+          bottom: '12%', 
           left: 0, right: 0, height: '65%',
           perspective: '600px',
           perspectiveOrigin: '50% 10%', 
@@ -321,7 +321,7 @@ export default function PhraseDisplay({ positionRef }: { positionRef: React.RefO
                      const hit = isWordHit(w.startTime);
                      return (
                       <span key={w.id} style={{
-                        fontSize: '32px',
+                        fontSize: 'clamp(18px, 4vw, 32px)',
                         fontFamily: "'Noto Sans JP', sans-serif",
                         fontWeight: 900,
                         color: hit ? 'rgba(255, 255, 255, 0.95)' : 'rgba(100, 130, 180, 0.3)',
@@ -341,15 +341,15 @@ export default function PhraseDisplay({ positionRef }: { positionRef: React.RefO
       {/* ─── 最前列の現在フレーズ (画面下部、左右認識エリア内) ─── */}
       <div style={{
         position: 'absolute',
-        bottom: '8%',
+        bottom: '8%', // さらに下げて入力エリアを確保
         width: '100%',
         display: 'flex',
         justifyContent: 'center',
         alignItems: 'center',
       }}>
         <div style={{
-          maxWidth: 1200,
-          width: '80%',
+          maxWidth: 'min(1200px, 95%)',
+          width: '95%',
           overflow: 'hidden',
           position: 'relative',
           display: 'flex',

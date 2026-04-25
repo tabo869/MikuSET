@@ -1,5 +1,5 @@
 import { useRef, useState, useCallback, useMemo, useEffect } from 'react';
-import { useFrame } from '@react-three/fiber';
+import { useFrame, useThree } from '@react-three/fiber';
 import { Line } from '@react-three/drei';
 import * as THREE from 'three';
 import Note from './Note';
@@ -53,63 +53,38 @@ function mergeUnits(
 // X: Left=-3.5, Center=-2.0, Right=-0.5
 // Y: Top=2.0, Middle=0.0, Bottom=-2.0
 const CONDUCTOR_PATTERN_LEFT: { x: number; y: number }[] = [
-  { x: -2.0, y: -2.0 }, // ↓ ダウン (Center, Bottom)
-  { x: -0.5, y:  0.0 }, // → イン (Right, Middle)
-  { x: -3.5, y:  0.0 }, // ← アウト (Left, Middle)
-  { x: -2.0, y:  2.0 }, // ↑ アップ (Center, Top)
-  
-  { x: -2.0, y: -2.0 }, // (Center, Bottom)
-  { x: -3.5, y: -2.0 }, // (Left, Bottom)
-  { x: -0.5, y:  2.0 }, // (Right, Top)
-  { x: -2.0, y:  2.0 }, // (Center, Top)
-
-  { x: -0.5, y:  0.0 }, // (Right, Middle)
-  { x: -2.0, y:  2.0 }, // (Center, Top)
-  { x: -3.5, y:  0.0 }, // (Left, Middle)
-  { x: -2.0, y: -2.0 }, // (Center, Bottom)
-  { x: -0.5, y:  0.0 }, // (Right, Middle)
-  { x: -2.0, y:  2.0 }, // (Center, Top)
-  { x: -3.5, y:  0.0 }, // (Left, Middle)
-  { x: -2.0, y: -2.0 }, // (Center, Bottom)
+  { x: -2.0, y: -2.0 }, // Bottom Center
+  { x: -3.5, y:  0.0 }, // Middle Left
+  { x: -2.0, y:  2.0 }, // Top Center
+  { x: -0.5, y:  0.0 }, // Middle Right
+  { x: -3.5, y:  2.0 }, // Top Left
+  { x: -0.5, y: -2.0 }, // Bottom Right
+  { x: -0.5, y:  2.0 }, // Top Right
+  { x: -3.5, y: -2.0 }, // Bottom Left
+  { x: -2.0, y:  0.0 }, // Middle Center
 ];
 
-// 右手の指揮パターン (3x3 グリッド座標に完全準拠)
-// X: Left=0.5, Center=2.0, Right=3.5
-// Y: Top=2.0, Middle=0.0, Bottom=-2.0
 const CONDUCTOR_PATTERN_RIGHT: { x: number; y: number }[] = [
-  { x:  2.0, y: -2.0 }, // ↓ ダウン (Center, Bottom)
-  { x:  0.5, y:  0.0 }, // ← イン (Left, Middle)
-  { x:  3.5, y:  0.0 }, // → アウト (Right, Middle)
-  { x:  2.0, y:  2.0 }, // ↑ アップ (Center, Top)
-  
-  { x:  2.0, y: -2.0 }, // (Center, Bottom)
-  { x:  3.5, y: -2.0 }, // (Right, Bottom)
-  { x:  0.5, y:  2.0 }, // (Left, Top)
-  { x:  2.0, y:  2.0 }, // (Center, Top)
-
-  { x:  0.5, y:  0.0 }, // (Left, Middle)
-  { x:  2.0, y:  2.0 }, // (Center, Top)
-  { x:  3.5, y:  0.0 }, // (Right, Middle)
-  { x:  2.0, y: -2.0 }, // (Center, Bottom)
-  { x:  0.5, y:  0.0 }, // (Left, Middle)
-  { x:  2.0, y:  2.0 }, // (Center, Top)
-  { x:  3.5, y:  0.0 }, // (Right, Middle)
-  { x:  2.0, y: -2.0 }, // (Center, Bottom)
+  { x:  2.0, y: -2.0 }, // Bottom Center
+  { x:  0.5, y:  0.0 }, // Middle Left
+  { x:  2.0, y:  2.0 }, // Top Center
+  { x:  3.5, y:  0.0 }, // Middle Right
+  { x:  3.5, y:  2.0 }, // Top Right
+  { x:  0.5, y: -2.0 }, // Bottom Left
+  { x:  0.5, y:  2.0 }, // Top Left
+  { x:  3.5, y: -2.0 }, // Bottom Right
+  { x:  2.0, y:  0.0 }, // Middle Center
 ];
 
-function createStarShape() {
-  const shape = new THREE.Shape();
-  const outerRadius = 0.4;
-  const innerRadius = 0.15;
+function getStarPoints(outerRadius = 0.4, innerRadius = 0.15) {
+  const points: [number, number, number][] = [];
   const spikes = 5;
-  for (let i = 0; i < spikes * 2; i++) {
+  for (let i = 0; i <= spikes * 2; i++) {
     const r = i % 2 === 0 ? outerRadius : innerRadius;
     const a = (i / (spikes * 2)) * Math.PI * 2 - Math.PI / 2;
-    if (i === 0) shape.moveTo(Math.cos(a) * r, Math.sin(a) * r);
-    else shape.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+    points.push([Math.cos(a) * r, Math.sin(a) * r, 0]);
   }
-  shape.closePath();
-  return shape;
+  return points;
 }
 
 // ---------------------------------------------------------------------------
@@ -120,14 +95,16 @@ function TimingStar({
   hand,
   wordsRef,
   positionRef,
+  safeScale,
 }: {
   hand: 'left' | 'right';
   wordsRef: React.RefObject<{ text: string; startTime: number; endTime: number }[]>;
   positionRef: React.RefObject<number>;
+  safeScale: number;
 }) {
-  const meshRef = useRef<THREE.Mesh>(null!);
-  const lineRef = useRef<any>(null!); // Line2
-  const starShape = useMemo(() => createStarShape(), []);
+  const lineStarRef = useRef<any>(null!);
+  const lineRef = useRef<any>(null!); // ガイドライン
+  const starPoints = useMemo(() => getStarPoints(0.4, 0.15), []);
   
   const pattern = hand === 'left' ? CONDUCTOR_PATTERN_LEFT : CONDUCTOR_PATTERN_RIGHT;
   const color = hand === 'left' ? '#66aaff' : '#ff66aa';
@@ -138,15 +115,14 @@ function TimingStar({
   useFrame((state) => {
     const now = positionRef.current;
     const words = wordsRef.current;
-    if (!meshRef.current || now <= 0 || !words || words.length === 0) {
-      if (meshRef.current) meshRef.current.visible = false;
+    
+    if (!lineStarRef.current || now <= 0 || !words || words.length === 0) {
+      if (lineStarRef.current) lineStarRef.current.visible = false;
       if (lineRef.current) lineRef.current.visible = false;
       return;
     }
 
-    // 楽曲の変更等で配列が短くなった場合に対応するため、上限をクランプする
     let targetIndex = Math.min(lastIndexCache.current, words.length);
-    
     while (targetIndex < words.length && words[targetIndex].startTime <= now) {
       targetIndex++;
     }
@@ -156,14 +132,12 @@ function TimingStar({
     lastIndexCache.current = targetIndex;
 
     if (targetIndex >= words.length) {
-      meshRef.current.visible = false;
+      lineStarRef.current.visible = false;
       if (lineRef.current) lineRef.current.visible = false;
       return;
     }
 
-    meshRef.current.visible = true;
-    meshRef.current.rotation.z = state.clock.elapsedTime * 2;
-
+    lineStarRef.current.visible = true;
     const nextIdx = targetIndex;
     const nextWord = words[nextIdx];
     const nextPos = pattern[nextIdx % pattern.length];
@@ -173,18 +147,16 @@ function TimingStar({
     if (nextIdx === 0) {
       const spawnTime = nextWord.startTime - DEFAULT_SPAWN_AHEAD_MS;
       if (now < spawnTime) {
-        const material = meshRef.current.material as THREE.MeshStandardMaterial;
-        material.opacity = 0;
+        lineStarRef.current.material.opacity = 0;
       } else {
         const p = (now - spawnTime) / DEFAULT_SPAWN_AHEAD_MS;
         const smoothP = p * p * (3 - 2 * p);
         currentStarPos.set(
-          0 + (nextPos.x - 0) * smoothP,
-          0 + (nextPos.y - 0) * smoothP,
+          nextPos.x * safeScale * smoothP,
+          nextPos.y * safeScale * smoothP,
           0
         );
-        const material = meshRef.current.material as THREE.MeshStandardMaterial;
-        material.opacity = p;
+        lineStarRef.current.material.opacity = p;
       }
     } else {
       const prevIdx = targetIndex - 1;
@@ -193,32 +165,32 @@ function TimingStar({
 
       const timeToNext = nextWord.startTime - now;
       if (timeToNext > DEFAULT_SPAWN_AHEAD_MS) {
-         currentStarPos.set(prevPos.x, prevPos.y, 0);
+         currentStarPos.set(prevPos.x * safeScale, prevPos.y * safeScale, 0);
       } else {
          const moveDuration = Math.min(nextWord.startTime - prevWord.startTime, DEFAULT_SPAWN_AHEAD_MS);
          const moveStartTime = nextWord.startTime - moveDuration;
-         
          if (now < moveStartTime) {
-           currentStarPos.set(prevPos.x, prevPos.y, 0);
+           currentStarPos.set(prevPos.x * safeScale, prevPos.y * safeScale, 0);
          } else {
            const p = (now - moveStartTime) / moveDuration;
            const smoothP = p * p * (3 - 2 * p); 
            currentStarPos.set(
-             prevPos.x + (nextPos.x - prevPos.x) * smoothP,
-             prevPos.y + (nextPos.y - prevPos.y) * smoothP,
+             (prevPos.x * safeScale) + (nextPos.x * safeScale - prevPos.x * safeScale) * smoothP,
+             (prevPos.y * safeScale) + (nextPos.y * safeScale - prevPos.y * safeScale) * smoothP,
              0
            );
          }
       }
     }
     
-    meshRef.current.position.copy(currentStarPos);
+    lineStarRef.current.position.copy(currentStarPos);
+    lineStarRef.current.rotation.z = state.clock.elapsedTime * 2;
 
     linePoints.current = [currentStarPos.x, currentStarPos.y, 0];
     for (let i = 0; i < 3; i++) {
         if (targetIndex + i < words.length) {
             const pos = pattern[(targetIndex + i) % pattern.length];
-            linePoints.current.push(pos.x, pos.y, 0);
+            linePoints.current.push(pos.x * safeScale, pos.y * safeScale, 0);
         }
     }
 
@@ -242,18 +214,14 @@ function TimingStar({
         gapSize={0.1}
         lineWidth={3}
       />
-      <mesh ref={meshRef} visible={false}>
-        <shapeGeometry args={[starShape]} />
-        <meshStandardMaterial 
-          color="#ffffff" 
-          emissive={color} 
-          emissiveIntensity={4} 
-          transparent
-          opacity={1}
-          side={THREE.DoubleSide} 
-          toneMapped={false}
-        />
-      </mesh>
+      <Line
+        ref={lineStarRef}
+        points={starPoints}
+        color={color}
+        lineWidth={3}
+        transparent
+        opacity={1}
+      />
     </group>
   );
 }
@@ -267,29 +235,30 @@ interface NoteManagerProps {
 }
 
 export default function NoteManager({ handsDataRef }: NoteManagerProps) {
+  const { viewport } = useThree();
   const { state, positionRef } = useMusicPlayer();
   const { stateRef: gameStateRef, actions: gameActions } = useGameState();
 
+  const scaleX = Math.min(1.0, viewport.width / 11);
+  const scaleY = Math.min(1.0, viewport.height / 7);
+  const safeScale = Math.min(scaleX, scaleY);
+
   const [activeNotes, setActiveNotes] = useState<NoteData[]>([]);
-  // handleHit/handleMiss内でactiveNotesを参照するためのRef
-  // ※ useCallbackの依存配列にactiveNotesを含めると全ノーツが毎フレーム再レンダリングされるため
   const activeNotesRef = useRef<NoteData[]>([]);
   activeNotesRef.current = activeNotes;
 
-  // 左右それぞれに振り分けた歌詞リスト
   const leftWordsRef = useRef<{ text: string; startTime: number; endTime: number }[]>([]);
   const rightWordsRef = useRef<{ text: string; startTime: number; endTime: number }[]>([]);
 
   const nextIndexLeftRef = useRef(0);
   const nextIndexRightRef = useRef(0);
   const wordsInitializedRef = useRef(false);
+  const lastDetectedRef = useRef({ left: false, right: false });
 
-  // ヒットした単語IDのグローバルSet (PhraseDisplayが参照する)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const { actions: musicActions } = useMusicPlayer();
   const hitWordIdsRef = useRef<Set<string>>(new Set());
   (window as unknown as Record<string, unknown>).__mikusetHitWordIds = hitWordIdsRef.current;
 
-  // 曲が切り替わったとき (isVideoReady == false になったとき) に内部ステートをリセットする
   useEffect(() => {
     if (!state.isVideoReady) {
       wordsInitializedRef.current = false;
@@ -297,7 +266,7 @@ export default function NoteManager({ handsDataRef }: NoteManagerProps) {
       rightWordsRef.current = [];
       nextIndexLeftRef.current = 0;
       nextIndexRightRef.current = 0;
-      hitWordIdsRef.current.clear(); // ★ 曲変更時にヒット済みリストをクリア
+      hitWordIdsRef.current.clear();
       setActiveNotes([]);
       setTimeout(() => {
         document.querySelectorAll('.mikuset-note-html-orphaned-guard').forEach(el => {
@@ -310,7 +279,6 @@ export default function NoteManager({ handsDataRef }: NoteManagerProps) {
     }
   }, [state.isVideoReady]);
 
-  // 再生開始時/停止時にノーツを強制再初期化・クリアする
   useEffect(() => {
     if (state.isPlaying) {
       wordsInitializedRef.current = false;
@@ -327,7 +295,6 @@ export default function NoteManager({ handsDataRef }: NoteManagerProps) {
       }, 100);
       console.log('[NoteManager] 再生開始を検知。ノーツ状態を強制リセットしました。');
     } else {
-      // 停止時（曲終了・STOP時）に残っているノーツとエフェクトを即座に消去
       setActiveNotes([]);
       hitWordIdsRef.current.clear();
       setTimeout(() => {
@@ -342,11 +309,7 @@ export default function NoteManager({ handsDataRef }: NoteManagerProps) {
   }, [state.isPlaying]);
 
   useFrame(() => {
-    // 楽曲データが準備完了し、再生中で、かつノーツリストが未構築の場合のみ構築する
-    // ※ state.isPlaying のチェックが無いと、一時停止中に初期化→リセットが
-    //   毎フレーム繰り返されて不安定になる
     if (!wordsInitializedRef.current && state.isVideoReady && state.isPlaying) {
-      // --- 難易度に応じたtextUnit/mergeCountで元データを取得・マージ ---
       const gs = gameStateRef.current;
       const diffCfg = DIFFICULTIES[gs.currentDifficulty];
 
@@ -354,16 +317,12 @@ export default function NoteManager({ handsDataRef }: NoteManagerProps) {
       if (diffCfg.textUnit === 'char') {
         rawUnits = (window as unknown as Record<string, unknown>).__mikusetChars as typeof rawUnits;
       }
-      // charデータ無しの場合、またはword単位の場合はword配列を使用
       if (!rawUnits || rawUnits.length === 0) {
         rawUnits = (window as unknown as Record<string, unknown>).__mikusetWords as typeof rawUnits;
       }
 
       if (rawUnits && rawUnits.length > 0) {
-        // マージ処理 (Easy: 3個まとめ等)
         const units = mergeUnits(rawUnits, diffCfg.mergeCount);
-
-        // ノーツを左右交互に振り分ける
         const leftArr: typeof units = [];
         const rightArr: typeof units = [];
         units.forEach((w, i) => {
@@ -376,50 +335,59 @@ export default function NoteManager({ handsDataRef }: NoteManagerProps) {
         leftWordsRef.current = leftArr;
         rightWordsRef.current = rightArr;
 
-        // シーク再生対応：現在の再生位置より前のWordは既にスキップ済みとしてインデックスを初期化
         const now = positionRef.current;
         let li = 0, ri = 0;
-        // 既に終わった（endTimeが過ぎた）ノーツだけをスキップする
         while (li < leftArr.length && leftArr[li].endTime < now) li++;
         while (ri < rightArr.length && rightArr[ri].endTime < now) ri++;
         nextIndexLeftRef.current = li;
         nextIndexRightRef.current = ri;
 
         wordsInitializedRef.current = true;
-        console.log(`[NoteManager] 難易度=${gs.currentDifficulty} (${diffCfg.textUnit}×merge${diffCfg.mergeCount}) → 右手用 ${rightArr.length} 個、左手用 ${leftArr.length} 個に分割。再生位置 ${Math.round(now / 1000)}s からインデックス開始 (L=${li}, R=${ri})`);
+        console.log(`[NoteManager] 構築完了: 右 ${rightArr.length}, 左 ${leftArr.length}`);
       }
       return;
     }
 
-    // 再生中でなければ何もしない（一時停止中のフレームで状態を壊さない）
     if (!state.isPlaying) return;
 
-    // ラグオフセットを加味した現在時刻
     const rawNow = positionRef.current;
     const offsetMs = gameStateRef.current.globalOffsetMs;
     const now = rawNow + offsetMs;
-    if (rawNow <= 0) {
-      // 再生位置が0以下ならノーツ生成はスキップ（再生開始直後の過渡期）
+    if (rawNow <= 0) return;
+
+    if (gameStateRef.current.isGameOver || gameStateRef.current.isCleared) {
+      if (gameStateRef.current.isGameOver && state.isPlaying) {
+        musicActions.pause();
+      }
       return;
     }
 
-    // ★ ステージクリア後（リザルト画面表示中）は動画再生の自動ループに巻き込まれないように処理をブロック
-    if (gameStateRef.current.isCleared) {
-      return;
-    }
+    ['left', 'right'].forEach(h => {
+      const hand = h as 'left' | 'right';
+      const detected = handsDataRef.current[hand].detected;
+      if (detected && !lastDetectedRef.current[hand]) {
+        const nowTime = positionRef.current + gameStateRef.current.globalOffsetMs;
+        const hasTarget = activeNotesRef.current.some(n => 
+          n.hand === hand && 
+          !n.hit && !n.missed &&
+          Math.abs(nowTime - n.startTime) < (n.timingWindow ?? 400)
+        );
+        if (!hasTarget && !state.isAutoPlayMode) {
+          gameActions.registerPenalty();
+        }
+      }
+      lastDetectedRef.current[hand] = detected;
+    });
 
-    // 難易度パラメータ（ノーツ生成時に注入する物理値）
     const diffCfg = DIFFICULTIES[gameStateRef.current.currentDifficulty];
     const SPAWN_AHEAD_MS = diffCfg.speed;
 
-    // 再生状態でのシーク・巻き戻しを検知してインデックスを回復する
     const prevL = leftWordsRef.current[nextIndexLeftRef.current - 1];
     const prevR = rightWordsRef.current[nextIndexRightRef.current - 1];
     if (
       (prevL && prevL.startTime > now + 3000) || 
       (prevR && prevR.startTime > now + 3000)
     ) {
-      console.log('[NoteManager] リトライ/巻き戻しを検知。インデックスをリセットします。');
       wordsInitializedRef.current = false;
       setActiveNotes([]);
       hitWordIdsRef.current.clear();
@@ -428,15 +396,13 @@ export default function NoteManager({ handsDataRef }: NoteManagerProps) {
     
     const newNotesBatch: NoteData[] = [];
 
-    // 左手用ノーツの生成判定
     while (nextIndexLeftRef.current < leftWordsRef.current.length) {
       const idx = nextIndexLeftRef.current;
       const word = leftWordsRef.current[idx];
       const spawnTime = word.startTime - SPAWN_AHEAD_MS;
-
       if (now >= spawnTime) {
         const ringPosLeft = CONDUCTOR_PATTERN_LEFT[idx % CONDUCTOR_PATTERN_LEFT.length];
-        const leftNote: NoteData = {
+        newNotesBatch.push({
           id: `note-left-${word.startTime}-${word.text}`,
           hand: 'left',
           text: word.text,
@@ -445,33 +411,30 @@ export default function NoteManager({ handsDataRef }: NoteManagerProps) {
           spawnTime,
           hit: false,
           missed: false,
-          targetX: Math.max(-4.5, Math.min(4.5, ringPosLeft.x)),
-          targetY: ringPosLeft.y,
+          targetX: ringPosLeft.x * safeScale,
+          targetY: ringPosLeft.y * safeScale,
           originX: 0, 
-          originY: 0,
+          originY: -2.3, // 影の頭付近（パースを考慮したY座標）から出現
           ringColor: '#66aaff',
           speed: diffCfg.speed,
           hitboxRadius: diffCfg.hitboxRadius,
           magnetPower: diffCfg.magnetPower,
           timingWindow: diffCfg.timingWindow,
           sourceStartTimes: word.sourceStartTimes,
-        };
-        newNotesBatch.push(leftNote);
+        });
         nextIndexLeftRef.current += 1;
       } else {
-        break; // 以降のノーツもまだ出現時間ではない
+        break;
       }
     }
 
-    // 右手用ノーツの生成判定
     while (nextIndexRightRef.current < rightWordsRef.current.length) {
       const idx = nextIndexRightRef.current;
       const word = rightWordsRef.current[idx];
       const spawnTime = word.startTime - SPAWN_AHEAD_MS;
-
       if (now >= spawnTime) {
         const ringPosRight = CONDUCTOR_PATTERN_RIGHT[idx % CONDUCTOR_PATTERN_RIGHT.length];
-        const rightNote: NoteData = {
+        newNotesBatch.push({
           id: `note-right-${word.startTime}-${word.text}`,
           hand: 'right',
           text: word.text,
@@ -480,67 +443,55 @@ export default function NoteManager({ handsDataRef }: NoteManagerProps) {
           spawnTime,
           hit: false,
           missed: false,
-          targetX: Math.max(-4.5, Math.min(4.5, ringPosRight.x)),
-          targetY: ringPosRight.y,
+          targetX: ringPosRight.x * safeScale,
+          targetY: ringPosRight.y * safeScale,
           originX: 0,
-          originY: 0,
+          originY: -2.3, // 影の頭付近（パースを考慮したY座標）から出現
           ringColor: '#ff66aa',
           speed: diffCfg.speed,
           hitboxRadius: diffCfg.hitboxRadius,
           magnetPower: diffCfg.magnetPower,
           timingWindow: diffCfg.timingWindow,
           sourceStartTimes: word.sourceStartTimes,
-        };
-        newNotesBatch.push(rightNote);
+        });
         nextIndexRightRef.current += 1;
       } else {
-        break; // 以降のノーツもまだ出現時間ではない
+        break;
       }
     }
 
     if (newNotesBatch.length > 0) {
       setActiveNotes((prev) => {
         const combined = [...prev, ...newNotesBatch];
-        // パフォーマンス保護: 難易度に応じた最大アクティブノーツ数
-        const diffCfgCurrent = DIFFICULTIES[gameStateRef.current.currentDifficulty];
-        const maxNotes = diffCfgCurrent.textUnit === 'char' ? 20 : MAX_ACTIVE_NOTES;
-        if (combined.length > maxNotes) {
-          return combined.slice(combined.length - maxNotes);
-        }
-        return combined;
+        const maxNotes = DIFFICULTIES[gameStateRef.current.currentDifficulty].textUnit === 'char' ? 20 : MAX_ACTIVE_NOTES;
+        return combined.slice(Math.max(0, combined.length - maxNotes));
       });
     }
   });
 
-  const handleHit = useCallback((id: string, _hand: 'left'|'right') => {
-    gameActions.onHit();
-    const startTimeMatch = id.match(/note-(?:left|right)-(\d+)-/);
-    if (startTimeMatch) {
-      const noteStartTime = parseInt(startTimeMatch[1], 10);
-      hitWordIdsRef.current.add(String(noteStartTime));
-
-      // マージされたノーツの場合、元のソースWord全てのstartTimeも登録する
-      const hitNote = activeNotesRef.current.find(n => n.id === id);
-      if (hitNote?.sourceStartTimes) {
-        hitNote.sourceStartTimes.forEach(st => hitWordIdsRef.current.add(String(st)));
-      }
+  const handleHit = useCallback((id: string, hand: 'left'|'right', isPerfect: boolean) => {
+    gameActions.registerHit(isPerfect);
+    const hitNote = activeNotesRef.current.find(n => n.id === id);
+    if (hitNote?.sourceStartTimes) {
+      hitNote.sourceStartTimes.forEach(st => hitWordIdsRef.current.add(String(st)));
+    } else {
+      const startTimeMatch = id.match(/note-(?:left|right)-(\d+)-/);
+      if (startTimeMatch) hitWordIdsRef.current.add(startTimeMatch[1]);
     }
     setActiveNotes((prev) => prev.map((n) => (n.id === id ? { ...n, hit: true } : n)));
     setTimeout(() => setActiveNotes((prev) => prev.filter((n) => n.id !== id)), 600);
   }, [gameActions]);
 
   const handleMiss = useCallback((id: string, _hand: 'left'|'right') => {
-    gameActions.onMiss();
+    gameActions.registerMiss();
     setActiveNotes((prev) => prev.map((n) => (n.id === id ? { ...n, missed: true } : n)));
-    // ミスアニメーション後に除去（短縮: 800→400ms）
     setTimeout(() => setActiveNotes((prev) => prev.filter((n) => n.id !== id)), 400);
   }, [gameActions]);
 
   return (
     <>
-      {/* 左右独立したタイミングスター */}
-      <TimingStar hand="left" wordsRef={leftWordsRef} positionRef={positionRef} />
-      <TimingStar hand="right" wordsRef={rightWordsRef} positionRef={positionRef} />
+      <TimingStar hand="left" wordsRef={leftWordsRef} positionRef={positionRef} safeScale={safeScale} />
+      <TimingStar hand="right" wordsRef={rightWordsRef} positionRef={positionRef} safeScale={safeScale} />
 
       {activeNotes.map((note) => (
         <Note

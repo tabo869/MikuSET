@@ -1,6 +1,6 @@
-import { useRef, useEffect, memo } from 'react';
+import { useRef, useEffect, memo, useState, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { Html } from '@react-three/drei';
+import { Html, Line } from '@react-three/drei';
 import * as THREE from 'three';
 import type { NoteData } from '../types/note';
 import type { BothHandsDataRef } from '../types/hand';
@@ -17,7 +17,21 @@ const MISS_Z = 3;
 const NOTE_TRAVEL_TIME = 2000;
 const HIT_DISTANCE_XY = 5.0; // 激甘ヒットボックス（X/Y半径）
 const HIT_DISTANCE_Z = 2.0;  // Z軸（奥行き）の判定
-const HIT_TIMING_WINDOW = 400;
+const HIT_TIMING_WINDOW = 500; // デフォルトの判定幅（ms）を緩和
+const HIT_PERFECT_WINDOW = 150; // PERFECT判定の幅（ms）
+
+
+function getStarPoints(outerRadius = 0.4, innerRadius = 0.15) {
+  const points: [number, number, number][] = [];
+  const spikes = 5;
+  for (let i = 0; i <= spikes * 2; i++) {
+    const r = i % 2 === 0 ? outerRadius : innerRadius;
+    const a = (i / (spikes * 2)) * Math.PI * 2 - Math.PI / 2;
+    points.push([Math.cos(a) * r, Math.sin(a) * r, 0]);
+  }
+  return points;
+}
+
 const PARTICLE_COUNT = 8; // 破壊エフェクト（パフォーマンス重視で最小化）
 
 // ---------------------------------------------------------------------------
@@ -25,6 +39,81 @@ const PARTICLE_COUNT = 8; // 破壊エフェクト（パフォーマンス重視
 // ---------------------------------------------------------------------------
 
 import { useGameState } from '../hooks/useGameState';
+
+// ---------------------------------------------------------------------------
+// 共有オーディオコンテキスト (タンバリンSE用)
+// ---------------------------------------------------------------------------
+let sharedAudioCtx: AudioContext | null = null;
+
+function playTambourineSE() {
+  if (typeof window === 'undefined') return;
+  try {
+    if (!sharedAudioCtx) {
+      const AudioContextClass = (window as any).AudioContext || (window as any).webkitAudioContext;
+      if (!AudioContextClass) return;
+      sharedAudioCtx = new AudioContextClass();
+    }
+    const ctx = sharedAudioCtx;
+    if (ctx.state === 'suspended') ctx.resume();
+
+    const now = ctx.currentTime;
+    
+    // 1. ノイズ成分 (金属的なアタックと空気感)
+    const duration = 0.25;
+    const bufferSize = ctx.sampleRate * duration;
+    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      // わずかに歪ませたノイズで「シャン」という広がりを出す
+      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufferSize, 2);
+    }
+
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    
+    const highpass = ctx.createBiquadFilter();
+    highpass.type = 'highpass';
+    highpass.frequency.value = 5000;
+    
+    const bandpass = ctx.createBiquadFilter();
+    bandpass.type = 'bandpass';
+    bandpass.frequency.value = 9000;
+    bandpass.Q.value = 1.0;
+
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.2, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + duration);
+
+    source.connect(highpass);
+    highpass.connect(bandpass);
+    bandpass.connect(gain);
+    gain.connect(ctx.destination);
+
+    // 2. メタリックな共鳴音 (ジングルのシマー感)
+    const frequencies = [4000, 5800, 8200, 10500];
+    frequencies.forEach((f, i) => {
+      const osc = ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.value = f;
+      
+      const g = ctx.createGain();
+      // 少しタイミングをずらして重なりを作る
+      const start = now + (i * 0.005);
+      g.gain.setValueAtTime(0, now);
+      g.gain.linearRampToValueAtTime(0.04, start + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.001, start + 0.2 + (i * 0.05));
+      
+      osc.connect(g);
+      g.connect(ctx.destination);
+      osc.start(start);
+      osc.stop(start + 0.3);
+    });
+
+    source.start(now);
+  } catch (e) {}
+}
+
+
 
 function HitEffect({
   position,
@@ -98,7 +187,52 @@ function HitEffect({
   );
 }
 
-function RingGuide({
+/** 判定文字（PERFECT/HIT/MISS）を表示するコンポーネント */
+function JudgeLabel({
+  position,
+  text,
+  color,
+  onComplete,
+}: {
+  position: THREE.Vector3;
+  text: string;
+  color: string;
+  onComplete: () => void;
+}) {
+  const [opacity, setOpacity] = useState(1);
+  const [yOffset, setYOffset] = useState(0);
+
+  useFrame((_s, delta) => {
+    setOpacity(prev => Math.max(0, prev - delta * 2));
+    setYOffset(prev => prev + delta * 2);
+    if (opacity <= 0) onComplete();
+  });
+
+  return (
+    <Html
+      position={[position.x, position.y + yOffset, position.z]}
+      center
+      pointerEvents="none"
+      className="mikuset-note-html-orphaned-guard"
+    >
+      <div style={{
+        color,
+        fontSize: text === 'PERFECT' ? 32 : 24,
+        fontWeight: 900,
+        fontFamily: "'Inter', sans-serif",
+        fontStyle: 'italic',
+        textShadow: `0 0 10px ${color}, 0 0 20px ${color}`,
+        opacity,
+        whiteSpace: 'nowrap',
+        transform: `scale(${text === 'PERFECT' ? 1.2 : 1})`,
+      }}>
+        {text}
+      </div>
+    </Html>
+  );
+}
+
+function StarGuide({
   targetX,
   targetY,
   color,
@@ -111,44 +245,39 @@ function RingGuide({
   progressRef: React.RefObject<number>;
   stateRef: React.MutableRefObject<'active' | 'magnet' | 'hit' | 'missed'>;
 }) {
-  const ringRef = useRef<THREE.Mesh>(null!);
+  const lineRef = useRef<any>(null!);
+  const starPoints = useMemo(() => getStarPoints(0.4, 0.15), []);
 
-  useFrame((_state) => {
-    if (!ringRef.current) return;
+  useFrame((state) => {
+    if (!lineRef.current) return;
     const progress = progressRef.current || 0;
     const currentState = stateRef.current;
     const active = currentState === 'active' || currentState === 'magnet';
-    const mat = ringRef.current.material as THREE.MeshStandardMaterial;
 
     if (active) {
+      lineRef.current.visible = true;
       // progressは0（出現時）→ 1（ジャストヒット時）
-      // progressが0の時は4倍の大きさで、1の時にピッタリ等倍(1.0)になるように縮小
       const scale = Math.max(0, 4.0 - progress * 3.0);
-      ringRef.current.scale.setScalar(scale);
+      lineRef.current.scale.setScalar(scale);
+      lineRef.current.rotation.z = state.clock.elapsedTime * 4;
 
-      // ジャストタイミングに近づくほど色が濃く(opacityと明るさUP)なる
       const fadeProgress = Math.min(1, progress * 1.2);
-      mat.opacity = fadeProgress;
-      mat.emissiveIntensity = 1 + fadeProgress * 3;
+      lineRef.current.material.opacity = fadeProgress;
     } else {
-      mat.opacity = 0;
+      lineRef.current.visible = false;
     }
   });
 
   return (
-    <mesh ref={ringRef} position={[targetX, targetY, JUDGE_Z]}>
-      {/* 基準の半径をノーツ本体のサイズ(0.3)に合わせる */}
-      <torusGeometry args={[0.3, 0.015, 8, 24]} />
-      <meshStandardMaterial
-        color={color}
-        emissive={color}
-        emissiveIntensity={2}
-        transparent
-        opacity={0}
-        toneMapped={false}
-        side={THREE.DoubleSide}
-      />
-    </mesh>
+    <Line
+      ref={lineRef}
+      points={starPoints}
+      color={color}
+      lineWidth={3}
+      transparent
+      opacity={0}
+      position={[targetX, targetY, JUDGE_Z]}
+    />
   );
 }
 
@@ -176,6 +305,8 @@ const Note = memo(function Note({ note, positionRef, handsDataRef, onHit, onMiss
   const hitPosRef = useRef(new THREE.Vector3());
   const resolvedRef = useRef(false);
   const magnetTimeRef = useRef(0);
+  const isPerfectRef = useRef(false);
+  const [judgeInfo, setJudgeInfo] = useState<{ text: string; color: string } | null>(null);
 
   // ★ R3Fのリコンサイラーがアンマウント時にThree.jsオブジェクトを取りこぼした場合のセーフティネット
   useEffect(() => {
@@ -232,19 +363,28 @@ const Note = memo(function Note({ note, positionRef, handsDataRef, onHit, onMiss
         const magPower = note.magnetPower ?? 30;
         groupRef.current.position.lerp(trackingHand.fingertip, delta * magPower);
         const dist = groupRef.current.position.distanceTo(trackingHand.fingertip);
-        // タクトに激突するか、一定時間(0.3秒)追尾したら強制的に爆発させる（無限ループ軌道による処理落ち防止）
         if (dist < 0.5 || magnetTimeRef.current > 0.3) {
           stateRef.current = 'hit';
           hitPosRef.current.copy(groupRef.current.position);
           showEffectRef.current = true;
-          onHit(note.id, note.hand);
+          const isPerf = isPerfectRef.current;
+          setJudgeInfo({
+            text: isPerf ? 'PERFECT' : 'HIT',
+            color: isPerf ? '#ffff00' : '#00ffff'
+          });
+          onHit(note.id, note.hand, isPerf);
         }
       } else {
         // トラッキングを見失った場合は即ヒット扱い
         stateRef.current = 'hit';
         hitPosRef.current.copy(groupRef.current.position);
         showEffectRef.current = true;
-        onHit(note.id, note.hand);
+        const isPerf = isPerfectRef.current;
+        setJudgeInfo({
+          text: isPerf ? 'PERFECT' : 'HIT',
+          color: isPerf ? '#ffff00' : '#00ffff'
+        });
+        onHit(note.id, note.hand, isPerf);
       }
       return;
     }
@@ -261,6 +401,8 @@ const Note = memo(function Note({ note, positionRef, handsDataRef, onHit, onMiss
       if (!isAutoPlayMode) {
         stateRef.current = 'missed';
         resolvedRef.current = true;
+        hitPosRef.current.set(x, y, z);
+        setJudgeInfo({ text: 'MISS', color: '#ff4444' });
         onMiss(note.id, note.hand);
         return;
       }
@@ -271,6 +413,8 @@ const Note = memo(function Note({ note, positionRef, handsDataRef, onHit, onMiss
     if (isAutoPlayMode && progress > 0.98 && !resolvedRef.current) {
       stateRef.current = 'magnet';
       resolvedRef.current = true;
+      isPerfectRef.current = true;
+      playTambourineSE(); // オートプレイ時にSEを鳴らす
       return;
     }
 
@@ -293,7 +437,9 @@ const Note = memo(function Note({ note, positionRef, handsDataRef, onHit, onMiss
         if (xyDist < noteHitboxRadius && Math.abs(dz) < HIT_DISTANCE_Z) {
           stateRef.current = 'magnet';
           resolvedRef.current = true;
-          // マグネット開始
+          // PERFECT判定 (HIT_PERFECT_WINDOW 以内)
+          isPerfectRef.current = timeDiff < HIT_PERFECT_WINDOW;
+
           return;
         }
       }
@@ -310,32 +456,10 @@ const Note = memo(function Note({ note, positionRef, handsDataRef, onHit, onMiss
 
   return (
     <group ref={outerGroupRef}>
-      <RingGuide targetX={note.targetX} targetY={note.targetY} color={note.ringColor} progressRef={progressRef} stateRef={stateRef} />
+      <StarGuide targetX={note.targetX} targetY={note.targetY} color={note.ringColor} progressRef={progressRef} stateRef={stateRef} />
 
       <group ref={groupRef} visible={opacityRef.current > 0.05}>
-        <mesh ref={meshRef}>
-          <sphereGeometry args={[0.3, 8, 8]} />
-          <meshStandardMaterial
-            color={note.ringColor}
-            emissive={note.ringColor}
-            emissiveIntensity={isNearJudge ? 6 : 3}
-            transparent
-            opacity={opacityRef.current * 0.9}
-            toneMapped={false}
-          />
-        </mesh>
-        <mesh>
-          <sphereGeometry args={[0.5, 6, 6]} />
-          <meshStandardMaterial
-            color={note.ringColor}
-            emissive={note.ringColor}
-            emissiveIntensity={1}
-            transparent
-            opacity={opacityRef.current * 0.15}
-            toneMapped={false}
-          />
-        </mesh>
-
+        {/* 球体ノーツを非表示にし、テキストのみに軽量化 */}
         {(stateRef.current === 'active' || stateRef.current === 'magnet') && (
           <Html
             center
@@ -361,6 +485,15 @@ const Note = memo(function Note({ note, positionRef, handsDataRef, onHit, onMiss
 
       {showEffectRef.current && (
         <HitEffect position={hitPosRef.current} color={note.ringColor} onComplete={() => { showEffectRef.current = false; }} />
+      )}
+
+      {judgeInfo && (
+        <JudgeLabel
+          position={hitPosRef.current}
+          text={judgeInfo.text}
+          color={judgeInfo.color}
+          onComplete={() => setJudgeInfo(null)}
+        />
       )}
     </group>
   );
