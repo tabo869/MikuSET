@@ -30,11 +30,16 @@ interface MergedUnit {
 }
 
 function mergeUnits(
-  units: { text: string; startTime: number; endTime: number }[],
+  units: { text: string; startTime: number; endTime: number; sourceStartTimes?: number[] }[],
   mergeCount: number,
 ): MergedUnit[] {
   if (mergeCount <= 1) {
-    return units.map(u => ({ ...u, sourceStartTimes: [u.startTime] }));
+    return units.map(u => ({
+      text: u.text,
+      startTime: u.startTime,
+      endTime: u.endTime,
+      sourceStartTimes: u.sourceStartTimes || [u.startTime]
+    }));
   }
   const merged: MergedUnit[] = [];
   for (let i = 0; i < units.length; i += mergeCount) {
@@ -43,11 +48,12 @@ function mergeUnits(
       text: slice.map((s) => s.text).join(''),
       startTime: slice[0].startTime,
       endTime: slice[slice.length - 1].endTime,
-      sourceStartTimes: slice.map(s => s.startTime),
+      sourceStartTimes: slice.flatMap(s => s.sourceStartTimes || [s.startTime]),
     });
   }
   return merged;
 }
+
 
 // 左手（鏡合わせ）の指揮パターン (3x3 グリッド座標に完全準拠)
 // X: Left=-3.5, Center=-2.0, Right=-0.5
@@ -279,13 +285,43 @@ export default function NoteManager({ handsDataRef }: NoteManagerProps) {
     }
   }, [state.isVideoReady]);
 
+  // 楽曲URLが変わった瞬間に初期化フラグとインデックスをリセットする
+  useEffect(() => {
+    wordsInitializedRef.current = false;
+    nextIndexLeftRef.current = 0;
+    nextIndexRightRef.current = 0;
+    leftWordsRef.current = [];
+    rightWordsRef.current = [];
+    setActiveNotes([]);
+    hitWordIdsRef.current.clear();
+    console.log(`[NoteManager] 楽曲変更を検知。状態をフルリセットしました。: ${state.activeSongUrl}`);
+  }, [state.activeSongUrl]);
+
+  // ★ 難易度変更を検知するためのポーリング
+  const lastDifficultyRef = useRef(gameStateRef.current.currentDifficulty);
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const currentDiff = gameStateRef.current.currentDifficulty;
+      if (currentDiff !== lastDifficultyRef.current) {
+        console.log(`[NoteManager] 難易度変更を検知: ${lastDifficultyRef.current} -> ${currentDiff}`);
+        lastDifficultyRef.current = currentDiff;
+        wordsInitializedRef.current = false;
+        setActiveNotes([]);
+        hitWordIdsRef.current.clear();
+      }
+    }, 100);
+    return () => clearInterval(interval);
+  }, [gameStateRef]);
+
   useEffect(() => {
     if (state.isPlaying) {
-      wordsInitializedRef.current = false;
+      // 再生開始時にインデックスを0に戻すが、データ自体は保持する
       nextIndexLeftRef.current = 0;
       nextIndexRightRef.current = 0;
       setActiveNotes([]);
       hitWordIdsRef.current.clear();
+
+
       setTimeout(() => {
         document.querySelectorAll('.mikuset-note-html-orphaned-guard').forEach(el => {
           const wrapper = el.closest('div[style*="absolute"]') as HTMLElement;
@@ -308,52 +344,63 @@ export default function NoteManager({ handsDataRef }: NoteManagerProps) {
     }
   }, [state.isPlaying]);
 
+  const lastLogTimeRef = useRef<number>(0);
+
   useFrame(() => {
     if (!wordsInitializedRef.current && state.isVideoReady && state.isPlaying) {
       const gs = gameStateRef.current;
       const diffCfg = DIFFICULTIES[gs.currentDifficulty];
 
-      let rawUnits: { text: string; startTime: number; endTime: number }[] | undefined;
+      const win = window as unknown as Record<string, any>;
+      let rawUnits: { text: string; startTime: number; endTime: number; sourceStartTimes?: number[] }[] | undefined;
+      
       if (diffCfg.textUnit === 'char') {
-        rawUnits = (window as unknown as Record<string, unknown>).__mikusetChars as typeof rawUnits;
+        rawUnits = win.__mikusetChars;
       }
       if (!rawUnits || rawUnits.length === 0) {
-        rawUnits = (window as unknown as Record<string, unknown>).__mikusetWords as typeof rawUnits;
+        rawUnits = win.__mikusetWords;
       }
+      if (!rawUnits || rawUnits.length === 0) return;
 
-      if (rawUnits && rawUnits.length > 0) {
-        const units = mergeUnits(rawUnits, diffCfg.mergeCount);
-        const leftArr: typeof units = [];
-        const rightArr: typeof units = [];
-        units.forEach((w, i) => {
-          if (i % 2 === 0) {
-            rightArr.push(w);
-          } else {
-            leftArr.push(w);
-          }
-        });
-        leftWordsRef.current = leftArr;
-        rightWordsRef.current = rightArr;
 
-        const now = positionRef.current;
-        let li = 0, ri = 0;
-        while (li < leftArr.length && leftArr[li].endTime < now) li++;
-        while (ri < rightArr.length && rightArr[ri].endTime < now) ri++;
-        nextIndexLeftRef.current = li;
-        nextIndexRightRef.current = ri;
+      const units = mergeUnits(rawUnits, diffCfg.mergeCount);
+      const leftArr: typeof units = [];
+      const rightArr: typeof units = [];
+      units.forEach((w, i) => {
+        if (i % 2 === 0) {
+          rightArr.push(w);
+        } else {
+          leftArr.push(w);
+        }
+      });
+      leftWordsRef.current = leftArr;
+      rightWordsRef.current = rightArr;
 
-        wordsInitializedRef.current = true;
-        console.log(`[NoteManager] 構築完了: 右 ${rightArr.length}, 左 ${leftArr.length}`);
-      }
+      const now = positionRef.current;
+      let li = 0, ri = 0;
+      while (li < leftArr.length && leftArr[li].endTime < now) li++;
+      while (ri < rightArr.length && rightArr[ri].endTime < now) ri++;
+      nextIndexLeftRef.current = li;
+      nextIndexRightRef.current = ri;
+
+      wordsInitializedRef.current = true;
       return;
     }
+
+
+
+
+
 
     if (!state.isPlaying) return;
 
     const rawNow = positionRef.current;
     const offsetMs = gameStateRef.current.globalOffsetMs;
     const now = rawNow + offsetMs;
-    if (rawNow <= 0) return;
+
+    if (rawNow <= 0 && !state.isAutoPlayMode) return;
+
+
 
     if (gameStateRef.current.isGameOver || gameStateRef.current.isCleared) {
       if (gameStateRef.current.isGameOver && state.isPlaying) {
@@ -364,19 +411,24 @@ export default function NoteManager({ handsDataRef }: NoteManagerProps) {
 
     ['left', 'right'].forEach(h => {
       const hand = h as 'left' | 'right';
-      const detected = handsDataRef.current[hand].detected;
-      if (detected && !lastDetectedRef.current[hand]) {
+      const isSwinging = handsDataRef.current[hand].isSwinging;
+      if (isSwinging && !lastDetectedRef.current[hand]) {
         const nowTime = positionRef.current + gameStateRef.current.globalOffsetMs;
         const hasTarget = activeNotesRef.current.some(n => 
           n.hand === hand && 
           !n.hit && !n.missed &&
           Math.abs(nowTime - n.startTime) < (n.timingWindow ?? 400)
         );
-        if (!hasTarget && !state.isAutoPlayMode) {
+        if (!hasTarget && !state.isAutoPlayMode && 
+            gameStateRef.current.currentDifficulty !== 'Easy' && 
+            gameStateRef.current.currentDifficulty !== 'Normal') {
           gameActions.registerPenalty();
         }
+
+
+
       }
-      lastDetectedRef.current[hand] = detected;
+      lastDetectedRef.current[hand] = isSwinging;
     });
 
     const diffCfg = DIFFICULTIES[gameStateRef.current.currentDifficulty];
@@ -414,7 +466,7 @@ export default function NoteManager({ handsDataRef }: NoteManagerProps) {
           targetX: ringPosLeft.x * safeScale,
           targetY: ringPosLeft.y * safeScale,
           originX: 0, 
-          originY: -2.3, // 影の頭付近（パースを考慮したY座標）から出現
+          originY: -2.3 * safeScale, // 出現位置もスケールに合わせる
           ringColor: '#66aaff',
           speed: diffCfg.speed,
           hitboxRadius: diffCfg.hitboxRadius,
@@ -446,7 +498,7 @@ export default function NoteManager({ handsDataRef }: NoteManagerProps) {
           targetX: ringPosRight.x * safeScale,
           targetY: ringPosRight.y * safeScale,
           originX: 0,
-          originY: -2.3, // 影の頭付近（パースを考慮したY座標）から出現
+          originY: -2.3 * safeScale, // 出現位置もスケールに合わせる
           ringColor: '#ff66aa',
           speed: diffCfg.speed,
           hitboxRadius: diffCfg.hitboxRadius,
@@ -478,9 +530,14 @@ export default function NoteManager({ handsDataRef }: NoteManagerProps) {
       const startTimeMatch = id.match(/note-(?:left|right)-(\d+)-/);
       if (startTimeMatch) hitWordIdsRef.current.add(startTimeMatch[1]);
     }
+    
+    // 歌詞表示(PhraseDisplay)にヒットを通知して再描画を促す
+    window.dispatchEvent(new CustomEvent('mikuset-hit'));
+    
     setActiveNotes((prev) => prev.map((n) => (n.id === id ? { ...n, hit: true } : n)));
     setTimeout(() => setActiveNotes((prev) => prev.filter((n) => n.id !== id)), 600);
   }, [gameActions]);
+
 
   const handleMiss = useCallback((id: string, _hand: 'left'|'right') => {
     gameActions.registerMiss();

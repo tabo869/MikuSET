@@ -10,6 +10,7 @@ import {
 } from 'react';
 import { Player } from 'textalive-app-api';
 import type { IPlayerApp, IVideo, Timer } from 'textalive-app-api';
+import { KOTAETE_SONG_URL, KOTAETE_CHORUS_DATA } from '../config/chorus_override';
 
 // ---------------------------------------------------------------------------
 // 定数
@@ -71,7 +72,13 @@ export interface MusicPlayerState {
   showInputLabels: boolean;
   /** モバイル環境かどうか */
   isMobile: boolean;
+  /** カメラが利用可能かどうか */
+  hasCamera: boolean;
+  /** 流れる歌詞を表示しないかどうか */
+  hideScrollingLyrics: boolean;
 }
+
+
 
 /** MusicPlayer の操作メソッド */
 export interface MusicPlayerActions {
@@ -87,7 +94,9 @@ export interface MusicPlayerActions {
   toggleVirtualInputMode: () => void;
   setLanguage: (lang: 'en' | 'ja') => void;
   toggleInputLabels: () => void;
+  toggleHideScrollingLyrics: () => void;
 }
+
 
 /** Context の値 */
 export interface MusicPlayerContextValue {
@@ -143,7 +152,11 @@ export function MusicProvider({ children }: MusicProviderProps) {
     language: 'en',
     showInputLabels: !isMobile,
     isMobile: isMobile,
+    hasCamera: true,
+    hideScrollingLyrics: false,
   });
+
+
 
   // 初期化時にローカルストレージからキャリブレーションデータを復元
   useEffect(() => {
@@ -158,35 +171,59 @@ export function MusicProvider({ children }: MusicProviderProps) {
     }
   }, []);
 
+  // カメラの有無をチェックし、利用不可なら自動的にタッチモード等へ切り替える
+  useEffect(() => {
+    const checkCamera = async () => {
+      try {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+          throw new Error('MediaDevices not supported');
+        }
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoInputs = devices.filter(device => device.kind === 'videoinput');
+        
+        if (videoInputs.length === 0) {
+          console.log('[MusicManager] カメラが見つからないため、モバイル/タッチモード設定を適用します');
+          setState(prev => ({
+            ...prev,
+            hasCamera: false,
+            isVirtualInputMode: true,
+            showInputLabels: false
+          }));
+        } else {
+          console.log(`[MusicManager] ${videoInputs.length} 個のカメラを検出しました`);
+          setState(prev => ({ ...prev, hasCamera: true }));
+        }
+      } catch (err) {
+        console.warn('[MusicManager] カメラの検出に失敗しました', err);
+        setState(prev => ({
+          ...prev,
+          hasCamera: false,
+          isVirtualInputMode: true,
+          showInputLabels: false
+        }));
+      }
+    };
+    checkCamera();
+  }, []);
+
+
   // Player初期化（mediaElementをDOM直接操作で作成）
   useEffect(() => {
     const mediaEl = document.createElement('div');
     mediaEl.id = 'textalive-media';
-    // contain: layout paint → 子要素の描画をこの要素の範囲にクリッピング
-    // （contain: strict と違い size 制約がないためSongle SDKの初期化は通る）
     mediaEl.style.cssText = [
-      'position: fixed',
-      'bottom: 0',
-      'right: 0',
-      'width: 320px',
-      'height: 240px',
-      'overflow: hidden',
-      'contain: layout paint',
-      'opacity: 0.01',
-      'pointer-events: none',
-      'z-index: -1',
+      'position: fixed', 'bottom: 0', 'right: 0', 'width: 320px', 'height: 240px',
+      'overflow: hidden', 'contain: layout paint', 'opacity: 0.01', 'pointer-events: none', 'z-index: -1',
     ].join(';');
     document.body.appendChild(mediaEl);
 
-    // --- Songle/TextAliveがbodyに追加する要素を監視・無効化 ---
+    // Songle/TextAliveがbodyに追加する要素を監視・無効化
     const observer = new MutationObserver((mutations) => {
       for (const mutation of mutations) {
         for (const node of mutation.addedNodes) {
           if (node instanceof HTMLElement && node.parentNode === document.body) {
-            // #root と #textalive-media 以外のbody直下要素を強制非表示
             if (node.id !== 'root' && node.id !== 'textalive-media' &&
                 node.tagName !== 'SCRIPT' && node.tagName !== 'LINK' && node.tagName !== 'STYLE') {
-              console.log('[MusicManager] Songle要素を検出・非表示化:', node.tagName, node.id || node.className);
               node.style.cssText = 'position:fixed!important;left:-9999px!important;top:-9999px!important;width:1px!important;height:1px!important;opacity:0!important;pointer-events:none!important;z-index:-9999!important;overflow:hidden!important;';
             }
           }
@@ -195,7 +232,6 @@ export function MusicProvider({ children }: MusicProviderProps) {
     });
     observer.observe(document.body, { childList: true });
 
-    // --- TextAlive Player 初期化 ---
     const player = new Player({
       app: { token: APP_TOKEN },
       mediaElement: mediaEl,
@@ -204,200 +240,226 @@ export function MusicProvider({ children }: MusicProviderProps) {
 
     player.addListener({
       onAppReady(app: IPlayerApp) {
-        console.log('[MusicManager] App準備完了', { managed: app.managed });
-        setState((prev) => ({
-          ...prev,
-          statusMessage: '楽曲データを読み込み中...',
-        }));
-
-        if (!app.managed) {
-          player.createFromSongUrl(DEFAULT_SONG_URL);
-        }
+        console.log('[MusicManager] App準備完了');
+        setState((prev) => ({ ...prev, statusMessage: '楽曲データを読み込み中...' }));
+        if (!app.managed) player.createFromSongUrl(DEFAULT_SONG_URL);
       },
 
       onVideoReady(video: IVideo) {
-        console.log(
-          '[MusicManager] 楽曲データ準備完了:',
-          `${video.wordCount} 単語, ${video.charCount} 文字`
-        );
+        console.log('[MusicManager] 楽曲データ準備完了:', `${video.wordCount} 単語`);
+        (window as any).__mikusetWords = [];
+        (window as any).__mikusetChars = [];
+        (window as any).__mikusetPhrases = [];
+        positionRef.current = 0;
+        maxPositionRef.current = 0;
 
-        // 全Wordのリストを構築してグローバルに公開（NoteManagerが参照する）
-        const words: { text: string; startTime: number; endTime: number }[] = [];
-        let lastWordTime = 0;
-        let word = video.firstWord;
-        while (word) {
-          words.push({
-            text: word.text,
-            startTime: word.startTime,
-            endTime: word.endTime,
-          });
-          lastWordTime = Math.max(lastWordTime, word.endTime);
-          word = word.next;
+        // --- 1. 文字データの抽出 (セーフティカウンタ付き) ---
+        let allChars: { text: string; startTime: number; endTime: number; parentWord: any }[] = [];
+        let wordPtr = video.firstWord;
+        let wordSafety = 0;
+        while (wordPtr && wordSafety < 2000) {
+          wordSafety++;
+          let charPtr = wordPtr.firstChar;
+          let charSafety = 0;
+          while (charPtr && charSafety < 200) {
+            charSafety++;
+            // コーラス周辺の異常データ（タイミングが10ms以下の壊れたデータ）を広範囲に除去
+            const isBrokenInChorus = charPtr.startTime >= 50000 && charPtr.startTime <= 120000 && (charPtr.endTime - charPtr.startTime <= 10);
+            
+            if (!isBrokenInChorus && charPtr.text && charPtr.text.trim() !== '') {
+              allChars.push({ text: charPtr.text, startTime: charPtr.startTime, endTime: charPtr.endTime, parentWord: wordPtr });
+            }
+            charPtr = charPtr.next;
+          }
+          wordPtr = wordPtr.next;
         }
-        (window as unknown as Record<string, unknown>).__mikusetWords = words;
-        (window as unknown as Record<string, unknown>).__mikusetLastWordTime = lastWordTime;
-        (window as unknown as Record<string, unknown>).__mikusetVideoDuration = video.duration;
 
-        // Char（文字）単位のリストも構築（Hard / Very Hard 用）
-        // Word → Char の階層を辿って取得する（video.firstChar だと
-        // タイミングデータが欠落する場合があるため）
-        const chars: { text: string; startTime: number; endTime: number }[] = [];
-        let cw = video.firstWord;
-        while (cw) {
-          let ch = cw.firstChar;
-          while (ch) {
-            if (
-              ch.text && ch.text.trim() !== '' &&
-              typeof ch.startTime === 'number' && !isNaN(ch.startTime) &&
-              typeof ch.endTime === 'number' && !isNaN(ch.endTime) &&
-              ch.endTime > ch.startTime
-            ) {
-              chars.push({
-                text: ch.text,
-                startTime: ch.startTime,
-                endTime: ch.endTime,
+        // --- 2. 精密コーラスデータの注入 ---
+        if ((video as any).documentUrl && (video as any).documentUrl.includes('6W2N')) {
+          let chorusCount = 0;
+          KOTAETE_CHORUS_DATA.forEach((phrase) => {
+            phrase.forEach((char: any) => {
+              allChars.push({ text: char.text, startTime: char.startTime, endTime: char.endTime, parentWord: { duration: 1 } });
+              chorusCount++;
+            });
+          });
+          console.log(`[MusicManager] ${chorusCount} 文字の精密データを注入しました`);
+        }
+
+        // 重複を除去（10ms以内の同一文字）
+        const seen = new Set<string>();
+        allChars = allChars.filter(c => {
+          const key = `${Math.round(c.startTime/10)*10}-${c.text}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+        allChars.sort((a, b) => a.startTime - b.startTime);
+
+        // --- 3. Char / Word データの構築 ---
+        const finalChars = allChars.map(c => ({ 
+          id: `char-${c.startTime}-${c.text}-${Math.random().toString(36).substr(2, 4)}`,
+          text: c.text, startTime: c.startTime, endTime: c.endTime 
+        }));
+        (window as any).__mikusetChars = finalChars;
+
+        const words: any[] = [];
+        let currentWordText = '';
+        let currentWordStart = 0;
+        let currentWordEnd = 0;
+        let currentParent: any = null;
+        let wordSourceTimes: number[] = [];
+
+        const MAX_CHARS_PER_NOTE = 6; // 6文字で分割して密度を上げる
+
+        allChars.forEach((c) => {
+          const isBrokenWord = c.parentWord && c.parentWord.duration <= 10;
+          const isTooLong = currentWordText.length >= MAX_CHARS_PER_NOTE;
+          const isTimeGap = currentWordEnd > 0 && (c.startTime - currentWordEnd > 400);
+
+          const shouldSplit = !currentParent || 
+                              (c.parentWord !== currentParent) || 
+                              isBrokenWord || 
+                              isTimeGap ||
+                              isTooLong;
+
+          if (shouldSplit) {
+            if (currentWordText) {
+              words.push({
+                id: `word-${currentWordStart}-${words.length}-${Math.random().toString(36).substr(2, 2)}`,
+                text: currentWordText,
+                startTime: currentWordStart,
+                endTime: currentWordEnd,
+                sourceStartTimes: wordSourceTimes
               });
             }
-            ch = ch.next;
+            currentWordText = c.text;
+            currentWordStart = c.startTime;
+            currentWordEnd = c.endTime;
+            currentParent = c.parentWord;
+            wordSourceTimes = [c.startTime];
+          } else {
+            currentWordText += c.text;
+            currentWordEnd = Math.max(currentWordEnd, c.endTime);
+            wordSourceTimes.push(c.startTime);
           }
-          cw = cw.next;
-        }
-        (window as unknown as Record<string, unknown>).__mikusetChars = chars;
-        console.log(`[MusicManager] ${chars.length} 個のCharデータを公開`);
-
-        // フレーズ情報の取得（PhraseDisplayで使用）
-        const phrases: {
-          id: string;
-          startTime: number;
-          endTime: number;
-          words: { id: string; text: string; startTime: number; endTime: number }[];
-        }[] = [];
-        let phrase = video.firstPhrase;
-        while (phrase) {
-          const phraseWords: { id: string; text: string; startTime: number; endTime: number }[] = [];
-          let w = phrase.firstWord;
-          while (w) {
-            phraseWords.push({
-              id: `${phrase.startTime}-${w.startTime}-${w.text}`,
-              text: w.text,
-              startTime: w.startTime,
-              endTime: w.endTime,
-            });
-            w = w.next;
-          }
-          phrases.push({
-            id: `phrase-${phrase.startTime}`,
-            startTime: phrase.startTime,
-            endTime: phrase.endTime,
-            words: phraseWords,
-          });
-          phrase = phrase.next;
-        }
-        (window as unknown as Record<string, unknown>).__mikusetPhrases = phrases;
-        console.log(`[MusicManager] ${phrases.length} 個のフレーズデータを公開`);
-
-
-        // サビ情報の取得
-        const choruses: { startTime: number; endTime: number }[] = [];
-        if (video.choruses) {
-          video.choruses.forEach((c) => {
-            choruses.push({ startTime: c.startTime, endTime: c.endTime });
+        });
+        
+        if (currentWordText) {
+          words.push({
+            id: `word-${currentWordStart}-${words.length}-${Math.random().toString(36).substr(2, 2)}`,
+            text: currentWordText,
+            startTime: currentWordStart,
+            endTime: currentWordEnd,
+            sourceStartTimes: wordSourceTimes
           });
         }
-        (window as unknown as Record<string, unknown>).__mikusetChoruses = choruses;
+        console.log(`[MusicManager] 最終Word数: ${words.length} (MaxChars: ${MAX_CHARS_PER_NOTE})`);
 
-        // 最初のWordの開始時刻を保存（play()でのシーク先として利用）
-        const firstWordTime = words.length > 0 ? words[0].startTime : 0;
-        (window as unknown as Record<string, unknown>).__mikusetFirstWordTime = firstWordTime;
-        console.log(
-          `[MusicManager] ${words.length} 個のWordデータ、${choruses.length} 個のサビ区間を公開。` +
-          `最初のWord: ${Math.round(firstWordTime / 1000)}秒 (${firstWordTime}ms)`
-        );
+        (window as any).__mikusetWords = words;
+        (window as any).__mikusetFirstWordTime = words.length > 0 ? words[0].startTime : 0;
+        (window as any).__mikusetLastWordTime = words.length > 0 ? words[words.length - 1].endTime : 0;
+        (window as any).__mikusetVideoDuration = video.duration;
 
-        setState((prev) => ({
-          ...prev,
-          isVideoReady: true,
-          statusMessage: 'タイマー準備中...',
-        }));
+
+        // --- 4. フレーズ情報の構築 (PhraseDisplay用) ---
+        const phrases: any[] = [];
+        let phrasePtr = video.firstPhrase;
+        let pSafety = 0;
+        let lastWordEnd = 0;
+        let maxGap = 0;
+
+        // 生成されたWordの整合性チェックログ
+        console.log(`[MusicManager] --- Word生成結果 (${words.length}件) ---`);
+        words.forEach((w, i) => {
+          if (i < 5 || (w.startTime > 50000 && w.startTime < 75000) || i > words.length - 5) {
+            console.log(`[Word #${i}] ${w.startTime}ms: "${w.text}" (${w.endTime - w.startTime}ms)`);
+          }
+          if (lastWordEnd > 0 && w.startTime - lastWordEnd > 2000) {
+            const gap = w.startTime - lastWordEnd;
+            maxGap = Math.max(maxGap, gap);
+            console.warn(`[MusicManager] ノーツに空白があります: ${lastWordEnd}ms -> ${w.startTime}ms (隙間: ${gap}ms)`);
+          }
+          lastWordEnd = w.endTime;
+        });
+        if (maxGap > 0) console.warn(`[MusicManager] 最大ノーツ隙間: ${maxGap}ms`);
+
+        while (phrasePtr && pSafety < 500) {
+          pSafety++;
+          const pStart = phrasePtr.startTime;
+          const pEnd = phrasePtr.endTime;
+          const matchingWords = words.filter(w => w.startTime >= pStart && w.startTime < pEnd);
+          const phraseWords = matchingWords.map((w) => ({ id: `pw-${w.id}`, text: w.text, startTime: w.startTime, endTime: w.endTime }));
+          if (phraseWords.length > 0) {
+            phrases.push({ id: `phrase-${pStart}-${phrases.length}`, startTime: phraseWords[0].startTime, endTime: phraseWords[phraseWords.length - 1].endTime, words: phraseWords });
+          }
+          phrasePtr = phrasePtr.next;
+        }
+        (window as any).__mikusetPhrases = phrases;
+        (window as any).__mikusetChoruses = (video as any).choruses ? (video as any).choruses.map((c: any) => ({ startTime: c.startTime, endTime: c.endTime })) : [];
+
+        setState((prev) => ({ ...prev, isVideoReady: true, statusMessage: 'タイマー準備中...' }));
+        
+        // フォールバック: 3秒待っても onTimerReady が呼ばれない場合は強制的に準備完了にする
+        setTimeout(() => {
+          setState((prev) => {
+            if (prev.isVideoReady && !prev.isReady) {
+              console.warn('[MusicPlayer] Timer ready timeout. Forcing isReady to true.');
+              return { ...prev, isReady: true, statusMessage: '準備完了 (デモモード)' };
+            }
+            return prev;
+          });
+        }, 3000);
+        
+        // ★ 最初から再生するために位置を0にリセット
+        positionRef.current = 0;
+        maxPositionRef.current = 0;
       },
 
-      onTimerReady(_timer: Timer) {
-        console.log('[MusicManager] タイマー準備完了 — 再生可能');
-        setState((prev) => ({
-          ...prev,
-          isReady: true,
-          statusMessage: '再生可能',
-        }));
+      onTimerReady() {
+        setState((prev) => ({ ...prev, isReady: true, statusMessage: '再生可能' }));
       },
-
-      /**
-       * 毎フレーム更新
-       * ★ setStateは絶対に呼ばない — positionRefのみ更新
-       */
       onTimeUpdate(position: number) {
         positionRef.current = position;
-        if (position > maxPositionRef.current) {
-          maxPositionRef.current = position;
-        }
+        if (position > maxPositionRef.current) maxPositionRef.current = position;
       },
-
-      onPlay() {
-        setState((prev) => ({ ...prev, isPlaying: true }));
-      },
-      onPause() {
-        setState((prev) => ({ ...prev, isPlaying: false }));
-      },
-      onStop() {
-        setState((prev) => ({ ...prev, isPlaying: false }));
-        positionRef.current = 0;
-      },
+      onPlay() { setState((prev) => ({ ...prev, isPlaying: true })); },
+      onPause() { setState((prev) => ({ ...prev, isPlaying: false })); },
+      onStop() { setState((prev) => ({ ...prev, isPlaying: false })); positionRef.current = 0; },
     });
 
     return () => {
       observer.disconnect();
       player.dispose();
       playerRef.current = null;
-      // mediaElementをDOMから除去
-      if (mediaEl.parentNode) {
-        mediaEl.parentNode.removeChild(mediaEl);
-      }
-      console.log('[MusicManager] Player破棄完了');
+      if (mediaEl.parentNode) mediaEl.parentNode.removeChild(mediaEl);
     };
   }, []);
+
 
   // 操作メソッド
   const play = useCallback((forceStart = false) => {
     const player = playerRef.current;
     if (!player) return;
 
-    // __mikusetFirstWordTime が取得できている場合は最初のWordの直前からシーク再生する。
-    // こうすることでイントロが長い楽曲でも開始直後からノーツが降ってくる。
-    // NOTE_LEAD_MS: ノーツが先行して降ってくるためのリードタイム（余裕を持って3秒前から）
     const NOTE_LEAD_MS = 3000;
-    const firstWordTime =
-      (window as unknown as Record<string, unknown>).__mikusetFirstWordTime as number | undefined;
+    const firstWordTime = (window as any).__mikusetFirstWordTime as number | undefined;
 
     const isFinished = player.video && positionRef.current >= player.video.endTime - 500;
     const shouldRestart = forceStart === true || positionRef.current === 0 || isFinished;
 
-    // ★ 再生前にpositionRefとmaxPositionRefを明示的にリセットする
-    positionRef.current = 0;
-    maxPositionRef.current = 0;
-
+    // --- 再生リクエスト ---
     if (shouldRestart) {
-      if (firstWordTime !== undefined && firstWordTime > NOTE_LEAD_MS) {
-        const seekTo = Math.max(0, firstWordTime - NOTE_LEAD_MS);
-        console.log(`[MusicPlayer] 最初のWord(${Math.round(firstWordTime / 1000)}s)の${NOTE_LEAD_MS / 1000}秒前(${Math.round(seekTo / 1000)}s)からシーク再生`);
-        player.requestMediaSeek(seekTo);
-      } else {
-        player.requestMediaSeek(0);
-      }
+      player.requestMediaSeek(0);
+      positionRef.current = 0;
+      player.requestPlay();
+    } else {
+      player.requestPlay();
     }
-    
-    player.requestPlay();
 
     setState((prev) => ({ ...prev, isTrackingTest: false, calibrationStep: 'NONE' }));
   }, []);
+
 
   const pause = useCallback(() => {
     playerRef.current?.requestPause();
@@ -487,11 +549,17 @@ export function MusicProvider({ children }: MusicProviderProps) {
     setState((prev) => ({ ...prev, showInputLabels: !prev.showInputLabels }));
   }, []);
 
+  const toggleHideScrollingLyrics = useCallback(() => {
+    setState((prev) => ({ ...prev, hideScrollingLyrics: !prev.hideScrollingLyrics }));
+  }, []);
+
+
   // actions は固定（useCallback済み）なので一度だけ生成
   const actions = useMemo<MusicPlayerActions>(
-    () => ({ play, pause, stop, togglePlayPause, toggleTrackingTest, setCalibrationStep, setCalibrationData, selectSong, toggleAutoPlay, toggleVirtualInputMode, setLanguage, toggleInputLabels }),
-    [play, pause, stop, togglePlayPause, toggleTrackingTest, setCalibrationStep, setCalibrationData, selectSong, toggleAutoPlay, toggleVirtualInputMode, setLanguage, toggleInputLabels]
+    () => ({ play, pause, stop, togglePlayPause, toggleTrackingTest, setCalibrationStep, setCalibrationData, selectSong, toggleAutoPlay, toggleVirtualInputMode, setLanguage, toggleInputLabels, toggleHideScrollingLyrics }),
+    [play, pause, stop, togglePlayPause, toggleTrackingTest, setCalibrationStep, setCalibrationData, selectSong, toggleAutoPlay, toggleVirtualInputMode, setLanguage, toggleInputLabels, toggleHideScrollingLyrics]
   );
+
   // contextValue は state が変わった時のみ再生成
   const contextValue = useMemo<MusicPlayerContextValue>(
     () => ({ state, actions, positionRef, maxPositionRef }),

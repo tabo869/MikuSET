@@ -358,8 +358,8 @@ function AudiencePenlights() {
         arr.push({
             pos: new THREE.Vector3(
               x, 
-              -12 + Math.random() * 2, // さらに低くして入力を妨げない
-              -15 - Math.random() * 45 // Zは -15 〜 -60
+              -9.5 + Math.random() * 2, // ステージ床面 (Y=-10) より少し上に出す
+              -10 - Math.random() * 60  // Zは -10 〜 -70 (ステージ前方から客席奥まで)
             ),
             phase: Math.random() * Math.PI * 2,
             speed: 1.5 + Math.random() * 2.0,

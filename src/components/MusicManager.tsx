@@ -4,6 +4,8 @@ import { useGameState } from '../hooks/useGameState';
 import { CONTEST_SONGS } from '../config/songs';
 import { DIFFICULTIES, DIFFICULTY_LEVELS } from '../config/difficulty';
 import type { DifficultyLevel } from '../config/difficulty';
+import ResultScreen from './ResultScreen';
+import { isHighScore, getRankPosition } from '../utils/ranking';
 
 /**
  * MusicManager — 音楽再生制御UIコンポーネント
@@ -39,7 +41,24 @@ export default function MusicManager() {
   // UI更新用のリアクティブなゲーム状態
   const [gs, setGs] = useState(gameStateRef.current);
 
+  /** スイングテストのフィードバック状態 */
+  const [testFeedback, setTestFeedback] = useState<{ hand: 'left' | 'right', time: number } | null>(null);
+
+  /** リアルタイムのモーションスコア（可視化用） */
+  const [motionScores, setMotionScores] = useState({ left: 0, right: 0 });
+
+  /** ポータル要素のRef */
+  const portalRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (state.isTrackingTest && portalRef.current) {
+      window.dispatchEvent(new CustomEvent('mikuset-portal-ready', { detail: { element: portalRef.current } }));
+    }
+  }, [state.isTrackingTest]);
+
   // 100msごとにゲーム状態を同期（体力低下演出やゲームオーバー用）
+
+
   useEffect(() => {
     const interval = setInterval(() => {
       setGs({ ...gameStateRef.current });
@@ -119,8 +138,22 @@ export default function MusicManager() {
       }
       
       if (isCleared) {
+        const gs = gameStateRef.current;
+        // オートプレイ時はランキング対象外（isHighScore = false）
+        const highScore = !state.isAutoPlayMode && isHighScore(state.activeSongUrl, gs.score, gs.currentDifficulty);
+        
         gameStateRef.current.productionLevel = 1;
         setShowResult(true);
+
+        // 3D演出用のイベントを発火
+        // オートプレイ時でもフルコンボ（MISS 0）なら演出を見られるようにする
+        window.dispatchEvent(new CustomEvent('mikuset-result-cinematic', {
+          detail: { 
+            isHighScore: highScore,
+            score: gs.score,
+            isFullCombo: gs.misses === 0 && gs.hits > 0
+          }
+        }));
         // ★ リザルト表示時に残存しているHTML要素（判定文字など）を即座に掃除
         setTimeout(() => {
           document.querySelectorAll('.mikuset-note-html-orphaned-guard').forEach(el => {
@@ -133,7 +166,25 @@ export default function MusicManager() {
 
   }, [state.isPlaying, maxPositionRef, showResult]);
 
+  /** スイングテストのイベントリスナー */
+  useEffect(() => {
+    const handleTestSwing = (e: any) => {
+      setTestFeedback({ hand: e.detail.hand, time: Date.now() });
+    };
+    const handleMotionScore = (e: any) => {
+      setMotionScores(e.detail);
+    };
+    window.addEventListener('mikuset-test-swing', handleTestSwing);
+    window.addEventListener('mikuset-motion-score', handleMotionScore);
+    return () => {
+      window.removeEventListener('mikuset-test-swing', handleTestSwing);
+      window.removeEventListener('mikuset-motion-score', handleMotionScore);
+    };
+  }, []);
+
+
   /** カウントダウン処理 */
+
   useEffect(() => {
     if (countdown === null) return;
     if (countdown === 0) {
@@ -151,11 +202,32 @@ export default function MusicManager() {
     return () => clearTimeout(timer);
   }, [countdown, actions, gameActions]);
 
-  /** 再生開始ハンドラ（即時再生ではなくカウントダウンを起動） */
-  const handleStart = () => {
+  /** 再生開始ハンドラ（ブラウザ制限回避のため、クリック直後に同期的に再生命令を出す） */
+  const handleStart = async () => {
+    try {
+      // 画面固定の成功率を高めるため、フルスクリーンを要求（Android等）
+      if (document.documentElement.requestFullscreen) {
+        await document.documentElement.requestFullscreen().catch(() => {});
+      }
+
+      // スマートフォンでの誤操作防止のため、可能であれば画面を横向きにロック
+      if (typeof screen !== 'undefined' && (screen as any).orientation && (screen as any).orientation.lock) {
+        await (screen as any).orientation.lock('landscape').catch(() => {
+          // ロックに失敗（iOSや非フルスクリーン時）しても続行
+        });
+      }
+    } catch (e) {
+      // API非対応ブラウザ
+    }
+
+    // ★ 再生命令を最優先で実行（1msの遅延も許さない）
+    actions.play(true);
+    
     isUserStopped.current = false;
-    setCountdown(3); // 3→2→1→GO→再生
+    gameActions.reset();
   };
+
+
 
   /** 中断（ストップ）ハンドラ */
   const handleStop = () => {
@@ -227,93 +299,76 @@ export default function MusicManager() {
         </div>
       )}
 
-      {/* ── リザルト画面オーバーレイ ───────────────────────────── */}
-      {(showResult || gs.isGameOver) && (
-        <div style={{
-          position: 'fixed',
-          top: 0, bottom: 0, left: 0, right: 0,
-          zIndex: 9999,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'flex-start',
-          padding: 'clamp(20px, 5vh, 60px) 20px',
-          paddingBottom: 80, // ボタンの下に余白を確保
-          overflowY: 'auto',
-          background: '#000000',
-          animation: 'fadeIn 0.5s ease-out',
-        }}>
-          {/* リザルト画面専用のインラインアニメーション */}
-          <style>
-            {`
-              @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-              @keyframes slideUp { from { transform: translateY(50px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-            `}
-          </style>
-
-          <h2 style={{
-            color: gs.isGameOver ? '#ff4444' : '#aaddff',
-            fontSize: 32,
-            fontWeight: 900,
-            letterSpacing: gs.isGameOver ? 12 : 8,
-            marginBottom: 16,
-            animation: 'slideUp 0.6s ease-out',
-            textShadow: gs.isGameOver ? '0 0 20px rgba(255,0,0,0.8)' : 'none',
-          }}>
-            {gs.isGameOver ? t('ゲームオーバー', 'GAME OVER') : t('ステージクリア！', 'STAGE CLEARED')}
-          </h2>
-          
-          <div style={{
-            fontSize: 'clamp(48px, 15vh, 96px)',
-            fontWeight: 900,
-            color: '#ffffff',
-            textShadow: '0 0 40px rgba(0, 210, 255, 0.6)',
-            marginBottom: 'clamp(20px, 4vh, 40px)',
-            animation: 'slideUp 0.8s ease-out',
-            fontFamily: "'Inter', 'Segoe UI', sans-serif",
-            fontStyle: 'italic',
-          }}>
-            {/* スコア表示のために GameState を取得 */}
-            <ResultScore />
+      {/* ── 画面回転警告（縦画面プレイ防止） ────────────────── */}
+      {state.isPlaying && (
+        <div className="mikuset-portrait-warning">
+          <div className="warning-content">
+            <div className="icon">🔄</div>
+            <div className="text-ja">画面を横向きにしてください</div>
+            <div className="text-en">PLEASE ROTATE TO LANDSCAPE</div>
           </div>
-
-          <div style={{ animation: 'slideUp 1s ease-out', display: 'flex', gap: 24 }}>
-            <button
-              onClick={() => {
-                setShowResult(false);
-                if (gs.isGameOver) {
-                  // ゲームオーバー時は即リセット
-                  gameActions.reset();
-                  maxPositionRef.current = 0;
-                  isUserStopped.current = true;
-                } else {
-                  gameActions.reset();
-                  maxPositionRef.current = 0;
-                  isUserStopped.current = true;
-                }
-                musicActions.stop(); // 確実に再生を停止し、NoteManagerのマウントを解除する
-              }}
-              style={{
-                padding: '16px 40px',
-                fontSize: 20,
-                fontWeight: 700,
-                letterSpacing: 2,
-                color: '#ffffff',
-                background: 'linear-gradient(135deg, #00d2ff 0%, #3a7bd5 100%)',
-                border: 'none',
-                borderRadius: 30,
-                cursor: 'pointer',
-                boxShadow: '0 8px 32px rgba(0, 210, 255, 0.4)',
-                transition: 'all 0.2s ease',
-              }}
-              onMouseOver={(e) => (e.currentTarget.style.transform = 'scale(1.05)')}
-              onMouseOut={(e) => (e.currentTarget.style.transform = 'scale(1)')}
-            >
-              {t('次へ (曲を選択)', 'NEXT (SELECT SONG)')}
-            </button>
-          </div>
+          <style>{`
+            .mikuset-portrait-warning {
+              position: fixed;
+              inset: 0;
+              z-index: 9999;
+              background: rgba(0, 10, 30, 0.95);
+              backdrop-filter: blur(10px);
+              display: none;
+              align-items: center;
+              justify-content: center;
+              color: #fff;
+              text-align: center;
+            }
+            @media (orientation: portrait) {
+              .mikuset-portrait-warning {
+                display: flex;
+              }
+            }
+            .warning-content .icon {
+              font-size: 64px;
+              margin-bottom: 20px;
+              animation: rotateHint 2s infinite ease-in-out;
+            }
+            .warning-content .text-ja {
+              font-size: 20px;
+              font-weight: 900;
+              letter-spacing: 2px;
+              margin-bottom: 8px;
+            }
+            .warning-content .text-en {
+              font-size: 14px;
+              font-weight: 400;
+              letter-spacing: 4px;
+              opacity: 0.7;
+            }
+            @keyframes rotateHint {
+              0% { transform: rotate(0deg); }
+              25% { transform: rotate(90deg); }
+              75% { transform: rotate(90deg); }
+              100% { transform: rotate(0deg); }
+            }
+          `}</style>
         </div>
       )}
+
+      {/* ── リザルト画面 ───────────────────────────── */}
+      <ResultScreen
+        isVisible={showResult || gs.isGameOver}
+        isGameOver={gs.isGameOver}
+        activeSongUrl={state.activeSongUrl}
+        gameState={gameStateRef.current}
+        isVirtualInputMode={state.isVirtualInputMode}
+        isAutoPlayMode={state.isAutoPlayMode}
+        onClose={() => {
+          setShowResult(false);
+          gameActions.reset();
+          maxPositionRef.current = 0;
+          isUserStopped.current = true;
+          actions.stop();
+          window.dispatchEvent(new CustomEvent('mikuset-stop-cinematic'));
+        }}
+      />
 
       {/* ── スタート画面オーバーレイ（未再生・カウントダウンなし・リザルトなし時） ───── */}
       {!state.isPlaying && countdown === null && !showResult && !gs.isGameOver && (
@@ -322,18 +377,161 @@ export default function MusicManager() {
           style={{
             position: 'absolute',
             inset: 0,
-            zIndex: 30,
+            zIndex: 2500,
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
-            justifyContent: 'flex-start', // 中央寄せから上寄せに変更し、スクロール可能に
+            justifyContent: 'flex-start',
             padding: '40px 20px',
-            overflowY: 'auto', // スマホ横向き等の低画面高に対応
-            background: state.isTrackingTest ? 'rgba(0, 0, 0, 0.1)' : 'rgba(0, 0, 0, 0.4)',
-            backdropFilter: state.isTrackingTest ? 'none' : 'blur(4px)',
+            overflowY: 'auto',
+            background: state.isTrackingTest ? 'rgba(0, 0, 0, 0.7)' : 'rgba(0, 0, 0, 0.4)',
+            backdropFilter: state.isTrackingTest ? 'blur(10px)' : 'blur(4px)',
             pointerEvents: 'auto',
           }}
         >
+          {state.isTrackingTest && (
+            <div style={{
+              background: 'rgba(30, 80, 150, 0.6)',
+              padding: '24px',
+              borderRadius: '20px',
+              border: '1px solid rgba(255,255,255,0.3)',
+              marginBottom: '32px',
+              textAlign: 'center',
+              width: '100%',
+              maxWidth: '500px',
+              boxShadow: '0 0 40px rgba(0, 210, 255, 0.3)'
+            }}>
+              <h2 style={{ color: '#00d2ff', marginTop: 0, fontSize: 24, letterSpacing: 4 }}>SWING TEST</h2>
+              <p style={{ color: '#fff', fontSize: 14, opacity: 0.8 }}>
+                {t('カメラに向かって太鼓を叩くように腕を突き出してください。', 'Thrust your arms forward like beating a drum.')}
+                <br />
+                {t('正しく検知されると音が鳴ります。', 'Sound plays when a swing is detected.')}
+              </p>
+              <div style={{ 
+                margin: '20px auto', 
+                width: '320px', 
+                height: '240px', 
+                background: 'transparent', // カメラを透かすために透明に
+                borderRadius: '8px', 
+                border: '2px solid #00d2ff',
+                position: 'relative',
+                overflow: 'hidden'
+              }}>
+
+                <div style={{
+                  position: 'absolute',
+                  inset: 0,
+                  zIndex: 100,
+                  pointerEvents: 'none',
+                }} 
+                ref={portalRef}
+                id="swing-test-camera-portal" />
+
+
+                {/* 左手の判定ガイド（★） - 左側に配置 */}
+                <div style={{
+                  position: 'absolute',
+                  top: '50%',
+                  left: '20px',
+                  transform: 'translateY(-50%)',
+                  fontSize: 40,
+                  color: '#66aaff',
+                  opacity: 0.3,
+                  zIndex: 2105,
+                }}>★</div>
+                
+                {/* 右手の判定ガイド（★） - 右側に配置 */}
+                <div style={{
+                  position: 'absolute',
+                  top: '50%',
+                  right: '20px',
+                  transform: 'translateY(-50%)',
+                  fontSize: 40,
+                  color: '#ff66aa',
+                  opacity: 0.3,
+                  zIndex: 2105,
+                }}>★</div>
+
+
+
+                {/* Visual Feedback Overlay (ヒット時) */}
+                {testFeedback && Date.now() - testFeedback.time < 500 && (
+                  <>
+                    {/* ★ マーク（左右） */}
+                    <div style={{
+                      position: 'absolute',
+                      top: '50%',
+                      [testFeedback.hand === 'right' ? 'right' : 'left']: '20px',
+
+                      transform: 'translateY(-50%)',
+                      fontSize: 60,
+                      color: testFeedback.hand === 'right' ? '#ff66aa' : '#66aaff',
+
+                      textShadow: '0 0 20px currentColor',
+                      animation: 'mikuset-pop 0.3s ease-out forwards',
+                      zIndex: 2110,
+                    }}>
+                      ★
+                    </div>
+                    {/* PERFECT 文字 */}
+                    <div style={{
+                      position: 'absolute',
+                      bottom: '20%',
+                      left: '50%',
+                      transform: 'translateX(-50%)',
+                      fontSize: 32,
+                      fontWeight: 900,
+                      color: '#ffff00',
+                      textShadow: '0 0 15px rgba(255,255,0,0.8)',
+                      animation: 'mikuset-judge-pop 0.4s cubic-bezier(0, 1.5, 0.5, 1) forwards',
+                      zIndex: 2120,
+                    }}>
+                      PERFECT
+                    </div>
+
+                  </>
+                )}
+                
+                {/* モーションスコア・バー（可視化） */}
+                {/* モーションスコア・バー（可視化） - 右：ピンク(右手), 左：青(左手) */}
+                <div style={{ position: 'absolute', bottom: 0, right: 0, width: '50%', height: '4px', background: '#ff66aa', transform: `scaleX(${Math.min(1, motionScores.left / gs.motionThreshold)})`, transformOrigin: 'right', zIndex: 2130 }} />
+                <div style={{ position: 'absolute', bottom: 0, left: 0, width: '50%', height: '4px', background: '#66aaff', transform: `scaleX(${Math.min(1, motionScores.right / gs.motionThreshold)})`, transformOrigin: 'left', zIndex: 2130 }} />
+
+
+                <style>{`
+
+                  @keyframes mikuset-pop {
+                    0% { transform: translateY(-50%) scale(0.5); opacity: 0; }
+                    50% { transform: translateY(-50%) scale(1.3); opacity: 1; }
+                    100% { transform: translateY(-50%) scale(1); opacity: 0; }
+                  }
+                  @keyframes mikuset-judge-pop {
+                    0% { transform: translateX(-50%) scale(0.5); opacity: 0; }
+                    20% { transform: translateX(-50%) scale(1.2); opacity: 1; }
+                    100% { transform: translateX(-50%) scale(1); opacity: 0; }
+                  }
+                `}</style>
+              </div>
+
+              <div style={{ marginTop: 16 }}>
+                <label style={{ color: '#00d2ff', fontSize: 13, letterSpacing: 1, display: 'block', marginBottom: 6 }}>
+                  🔥 {t('判定感度（低いほど敏感）', 'SENSITIVITY (Lower is more sensitive)')}: <span style={{ color: '#ffffff', fontWeight: 700 }}>{gs.motionThreshold}</span>
+                </label>
+                <input
+                  type="range"
+                  min={1000}
+                  max={1000000}
+                  step={1000}
+                  value={gs.motionThreshold}
+                  onChange={(e) => gameActions.setMotionThreshold(Number(e.target.value))}
+                  style={{ width: '80%', cursor: 'pointer', accentColor: '#00d2ff' }}
+                />
+              </div>
+
+            </div>
+          )}
+
+
           {/* 楽曲選択ドロップダウン */}
           <div style={{ marginBottom: 32, textAlign: 'center' }}>
             <label style={{ color: '#aaddff', fontSize: 14, letterSpacing: 2, display: 'block', marginBottom: 8 }}>
@@ -402,40 +600,86 @@ export default function MusicManager() {
             </div>
           </div>
 
-          {/* ラグ調整 (オフセット) */}
-          <div style={{ marginBottom: 24, textAlign: 'center' }}>
-            <label style={{ color: '#aaddff', fontSize: 13, letterSpacing: 1, display: 'block', marginBottom: 6 }}>
-              ⏱ {t('タイミング調整', 'TIMING OFFSET')} (ms): <span style={{ color: '#ffffff', fontWeight: 700 }}>{localOffsetMs}</span>
-            </label>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, justifyContent: 'center' }}>
-              <button
-                onClick={() => handleOffsetChange(localOffsetMs - 1)}
-                style={{
-                  width: 36, height: 36, borderRadius: '50%', border: '1px solid rgba(255,255,255,0.2)',
-                  background: 'rgba(30, 50, 80, 0.6)', color: '#ffffff', fontSize: 18, cursor: 'pointer',
-                }}
-              >−</button>
-              <input
-                type="range"
-                min={-500}
-                max={500}
-                step={1}
-                value={localOffsetMs}
-                onChange={(e) => handleOffsetChange(Number(e.target.value))}
-                style={{ width: 200, cursor: 'pointer', accentColor: '#00d2ff' }}
-              />
-              <button
-                onClick={() => handleOffsetChange(localOffsetMs + 1)}
-                style={{
-                  width: 36, height: 36, borderRadius: '50%', border: '1px solid rgba(255,255,255,0.2)',
-                  background: 'rgba(30, 50, 80, 0.6)', color: '#ffffff', fontSize: 18, cursor: 'pointer',
-                }}
-              >+</button>
+          {/* ラグ調整 (オフセット) & クールダウン調整 */}
+          <div style={{ marginBottom: 24, textAlign: 'center', display: 'flex', gap: 32, justifyContent: 'center', flexWrap: 'wrap' }}>
+            {/* 判定オフセット */}
+            <div>
+              <label style={{ color: '#aaddff', fontSize: 13, letterSpacing: 1, display: 'block', marginBottom: 6 }}>
+                ⏱ {t('判定調整', 'TIMING OFFSET')} (ms): <span style={{ color: '#ffffff', fontWeight: 700 }}>{localOffsetMs}</span>
+              </label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'center' }}>
+                <button
+                  onClick={() => handleOffsetChange(localOffsetMs - 1)}
+                  style={{
+                    width: 30, height: 30, borderRadius: '50%', border: '1px solid rgba(0, 210, 255, 0.3)',
+                    background: 'rgba(0, 210, 255, 0.1)', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18
+                  }}
+                  onMouseOver={(e) => e.currentTarget.style.background = 'rgba(0, 210, 255, 0.3)'}
+                  onMouseOut={(e) => e.currentTarget.style.background = 'rgba(0, 210, 255, 0.1)'}
+                >－</button>
+                <input
+                  type="range"
+                  min={-500}
+                  max={500}
+                  step={1}
+                  value={localOffsetMs}
+                  onChange={(e) => handleOffsetChange(Number(e.target.value))}
+                  style={{ width: 130, cursor: 'pointer', accentColor: '#00d2ff' }}
+                />
+                <button
+                  onClick={() => handleOffsetChange(localOffsetMs + 1)}
+                  style={{
+                    width: 30, height: 30, borderRadius: '50%', border: '1px solid rgba(0, 210, 255, 0.3)',
+                    background: 'rgba(0, 210, 255, 0.1)', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18
+                  }}
+                  onMouseOver={(e) => e.currentTarget.style.background = 'rgba(0, 210, 255, 0.3)'}
+                  onMouseOut={(e) => e.currentTarget.style.background = 'rgba(0, 210, 255, 0.1)'}
+                >＋</button>
+              </div>
+
             </div>
-            <div style={{ marginTop: 4, fontSize: 11, color: '#6688aa' }}>
-              {t('正の値 → 判定を遅らせる ／ 負の値 → 判定を早める', 'Positive: Delay timing / Negative: Early timing')}
-            </div>
+
+            {/* スイングクールダウン (カメラ利用不可時は非表示) */}
+            {state.hasCamera && (
+              <div>
+                <label style={{ color: '#ffccaa', fontSize: 13, letterSpacing: 1, display: 'block', marginBottom: 6 }}>
+                  🥁 {t('連打間隔', 'SWING COOLDOWN')} (ms): <span style={{ color: '#ffffff', fontWeight: 700 }}>{gs.swingCooldownMs}</span>
+                </label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'center' }}>
+                  <button
+                    onClick={() => gameActions.setSwingCooldownMs(Math.max(50, gs.swingCooldownMs - 1))}
+                    style={{
+                      width: 30, height: 30, borderRadius: '50%', border: '1px solid rgba(255, 170, 100, 0.3)',
+                      background: 'rgba(255, 170, 100, 0.1)', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18
+                    }}
+                    onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255, 170, 100, 0.3)'}
+                    onMouseOut={(e) => e.currentTarget.style.background = 'rgba(255, 170, 100, 0.1)'}
+                  >－</button>
+                  <input
+                    type="range"
+                    min={50}
+                    max={1000}
+                    step={1}
+                    value={gs.swingCooldownMs}
+                    onChange={(e) => gameActions.setSwingCooldownMs(Number(e.target.value))}
+                    style={{ width: 130, cursor: 'pointer', accentColor: '#ffaa66' }}
+                  />
+                  <button
+                    onClick={() => gameActions.setSwingCooldownMs(Math.min(1000, gs.swingCooldownMs + 1))}
+                    style={{
+                      width: 30, height: 30, borderRadius: '50%', border: '1px solid rgba(255, 170, 100, 0.3)',
+                      background: 'rgba(255, 170, 100, 0.1)', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18
+                    }}
+                    onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255, 170, 100, 0.3)'}
+                    onMouseOut={(e) => e.currentTarget.style.background = 'rgba(255, 170, 100, 0.1)'}
+                  >＋</button>
+                </div>
+
+              </div>
+            )}
+
           </div>
+
 
           {/* 中央のSTARTボタンとローディングUI */}
           <div style={{ position: 'relative', width: 300, textAlign: 'center' }}>
@@ -488,8 +732,8 @@ export default function MusicManager() {
             )}
           </div>
 
-          {/* カメラテストボタン (モバイルでは非表示) */}
-          {!state.isMobile && (
+          {/* カメラテストボタン (カメラ利用不可時は非表示) */}
+          {state.hasCamera && (
             <button
               onClick={actions.toggleTrackingTest}
               style={{
@@ -505,12 +749,14 @@ export default function MusicManager() {
                 cursor: 'pointer',
                 transition: 'all 0.3s ease',
                 backdropFilter: 'blur(4px)',
+                boxShadow: state.isTrackingTest ? '0 0 20px rgba(255, 100, 150, 0.5)' : 'none',
               }}
             >
               {state.isTrackingTest 
-                ? t('📷 カメラテストを終了', '📷 EXIT TRACKING TEST') 
-                : t('📷 トラッキングテスト (カメラON)', '📷 TRACKING TEST (CAMERA ON)')}
+                ? t('🥁 スイングテストを終了', '🥁 EXIT SWING TEST') 
+                : t('🥁 スイングテスト (感度・連打設定)', '🥁 SWING TEST (CALIBRATION)')}
             </button>
+
           )}
 
           {/* オートプレイボタン */}
@@ -561,6 +807,31 @@ export default function MusicManager() {
             {t('タッチ・キーボード操作モード (カメラOFF)', 'TOUCH / KEYBOARD MODE (CAMERA OFF)')}
           </label>
 
+          {/* 歌詞スクロール表示の無効化ボタン */}
+          <label style={{
+            marginTop: 16,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            cursor: 'pointer',
+            color: '#ffffff',
+            fontSize: 14,
+            fontWeight: 600,
+            background: 'rgba(0, 0, 0, 0.5)',
+            padding: '8px 16px',
+            borderRadius: 16,
+            border: '1px solid rgba(255,255,255,0.2)'
+          }}>
+            <input 
+              type="checkbox" 
+              checked={state.hideScrollingLyrics}
+              onChange={actions.toggleHideScrollingLyrics}
+              style={{ width: 16, height: 16, cursor: 'pointer' }}
+            />
+            {t('歌詞の流れる表示を隠す', 'HIDE SCROLLING LYRICS')}
+          </label>
+
+
           {/* 言語切り替え */}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 16 }}>
             <label style={{
@@ -610,9 +881,8 @@ export default function MusicManager() {
           </div>
 
 
-          {state.isTrackingTest && !state.isMobile && <CalibrationWizard />}
-
           <div style={{ marginTop: 24, color: '#aaddff', fontSize: 14, letterSpacing: 1 }}>
+
             {state.statusMessage}
           </div>
         </div>
@@ -623,8 +893,10 @@ export default function MusicManager() {
         <div
           style={{
             position: 'absolute',
-            bottom: 'clamp(20px, 8vh, 40px)', // 大幅に下げて見切れと重なりを防止
-            left: 'clamp(20px, 4vw, 40px)',   // 左端へ移動
+            bottom: 'max(55px, 10vh)',
+            left: 'max(30px, 5vw)',
+
+
             zIndex: 20,
             display: 'flex',
             flexDirection: 'column',
@@ -636,52 +908,53 @@ export default function MusicManager() {
           <div
             style={{
               display: 'flex',
+              flexDirection: 'column',
               alignItems: 'center',
-              gap: 20,
-              background: 'rgba(0, 0, 0, 0.5)',
-              backdropFilter: 'blur(8px)',
-              borderRadius: 24,
-              padding: '8px 24px',
-              border: '1px solid rgba(255, 255, 255, 0.2)',
-              pointerEvents: 'auto', // ボタン部分はクリック可能に
+              gap: 8,
+              background: 'rgba(0, 0, 0, 0.4)',
+              backdropFilter: 'blur(10px)',
+              borderRadius: 20,
+              padding: '12px 16px',
+              border: '1px solid rgba(255, 255, 255, 0.15)',
+              pointerEvents: 'auto',
             }}
           >
-            {/* STOPボタン */}
-            <button
-              onClick={handleStop}
-              style={{
-                width: 44,
-                height: 44,
-                borderRadius: '50%',
-                border: 'none',
-                background: 'rgba(255, 60, 100, 0.8)',
-                color: '#ffffff',
-                fontSize: 14,
-                fontWeight: 700,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                boxShadow: '0 4px 16px rgba(255, 60, 100, 0.4)',
-                transition: 'all 0.2s ease',
-              }}
-              title="演奏を中断する"
-            >
-              {t('中断', 'STOP')}
-            </button>
-
             {/* 時間表示 */}
             <div
               style={{
-                color: 'rgba(255, 255, 255, 0.9)',
-                fontSize: 16,
-                fontWeight: 600,
+                color: 'rgba(255, 255, 255, 0.95)',
+                fontSize: 13,
+                fontWeight: 700,
                 fontFamily: 'monospace',
                 letterSpacing: 2,
               }}
             >
               {formatTime(displayTime)}
             </div>
+
+            {/* STOPボタン */}
+            <button
+              onClick={handleStop}
+              style={{
+                width: 52,
+                height: 32,
+                borderRadius: 16,
+                border: 'none',
+                background: 'rgba(255, 60, 100, 0.9)',
+                color: '#ffffff',
+                fontSize: 11,
+                fontWeight: 900,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxShadow: '0 4px 12px rgba(255, 60, 100, 0.4)',
+                transition: 'all 0.2s ease',
+              }}
+              title="演奏を中断する"
+            >
+              {t('中断', 'STOP')}
+            </button>
           </div>
         </div>
       )}
@@ -715,244 +988,7 @@ const MARKER_KEYFRAMES = `
 }
 `;
 
-/**
- * キャリブレーションウィザード UIコンポーネント
- */
-function CalibrationWizard() {
-  const { state, actions } = useMusicPlayer();
-  const [points, setPoints] = useState<Record<string, { x: number; y: number }>>({});
 
-  const isJa = state.language === 'ja';
-  const t = (ja: string, en: string) => (isJa ? ja : en);
-
-  useEffect(() => {
-    if (state.calibrationStep === 'NONE') return;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.code === 'Space') {
-        e.preventDefault();
-
-        const isRightStep = state.calibrationStep.startsWith('RIGHT');
-        const rawPos = isRightStep ? LIVE_RAW_HANDS.right : LIVE_RAW_HANDS.left;
-
-        if (!rawPos) {
-          alert('指定された手がカメラに映っていません！');
-          return;
-        }
-
-        const newPoints = { ...points, [state.calibrationStep]: { ...rawPos } };
-        setPoints(newPoints);
-
-        switch (state.calibrationStep) {
-          case 'RIGHT_TOP_RIGHT':
-            actions.setCalibrationStep('RIGHT_BOTTOM_LEFT');
-            break;
-          case 'RIGHT_BOTTOM_LEFT':
-            actions.setCalibrationStep('LEFT_TOP_LEFT');
-            break;
-          case 'LEFT_TOP_LEFT':
-            actions.setCalibrationStep('LEFT_BOTTOM_RIGHT');
-            break;
-          case 'LEFT_BOTTOM_RIGHT': {
-            const r1 = newPoints['RIGHT_TOP_RIGHT'];
-            const r2 = newPoints['RIGHT_BOTTOM_LEFT'];
-            const l1 = newPoints['LEFT_TOP_LEFT'];
-            const l2 = newPoints['LEFT_BOTTOM_RIGHT'];
-
-            const newData: CalibrationData = {
-              right: {
-                minX: Math.min(r1.x, r2.x),
-                maxX: Math.max(r1.x, r2.x),
-                minY: Math.min(r1.y, r2.y),
-                maxY: Math.max(r1.y, r2.y),
-              },
-              left: {
-                minX: Math.min(l1.x, l2.x),
-                maxX: Math.max(l1.x, l2.x),
-                minY: Math.min(l1.y, l2.y),
-                maxY: Math.max(l1.y, l2.y),
-              },
-            };
-
-            actions.setCalibrationData(newData);
-            actions.setCalibrationStep('NONE');
-            alert('キャリブレーションが完了しました！\n補正された追従範囲をテストしてください。');
-            setPoints({});
-            break;
-          }
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [state.calibrationStep, points, actions]);
-
-  if (state.calibrationStep === 'NONE') {
-    if (state.isMobile) return null; // モバイルではキャリブレーションボタンを表示しない
-    return (
-      <div style={{ marginTop: 16 }}>
-        <button
-          onClick={() => {
-            if (confirm('現在の補正データを破棄して、新しく位置を再設定しますか？')) {
-              setPoints({});
-              actions.setCalibrationData({ left: null, right: null });
-              actions.setCalibrationStep('RIGHT_TOP_RIGHT');
-            }
-          }}
-          style={{
-            padding: '8px 16px',
-            fontSize: 14,
-            background: 'transparent',
-            color: '#aaddff',
-            border: '1px solid #4466aa',
-            borderRadius: 16,
-            cursor: 'pointer',
-            transition: 'all 0.2s ease',
-          }}
-        >
-          🔧 可動範囲キャリブレーションを開始
-        </button>
-      </div>
-    );
-  }
-
-  const currentMarker = CALIBRATION_MARKERS[state.calibrationStep];
-
-  let instruction = '';
-  switch (state.calibrationStep) {
-    case 'RIGHT_TOP_RIGHT':
-      instruction = '【ステップ 1/4】\n右手を 画面右上の「①」マーカーへ合わせ、\nそのまま【スペースキー】を押して確定してください。';
-      break;
-    case 'RIGHT_BOTTOM_LEFT':
-      instruction = '【ステップ 2/4】\n右手を 画面右中央下の「②」マーカーへ合わせ\n（胸の前あたり）、【スペースキー】で確定してください。';
-      break;
-    case 'LEFT_TOP_LEFT':
-      instruction = '【ステップ 3/4】\n左手を 画面左上の「③」マーカーへ合わせ、\nそのまま【スペースキー】を押して確定してください。';
-      break;
-    case 'LEFT_BOTTOM_RIGHT':
-      instruction = '【ステップ 4/4】\n左手を 画面左中央下の「④」マーカーへ合わせ\n（胸の前あたり）、【スペースキー】で確定してください。';
-      break;
-  }
-
-  return (
-    <>
-      {/* アニメーション用スタイル */}
-      <style>{MARKER_KEYFRAMES}</style>
-
-      {/* 画面上に固定されるターゲットマーカー群 */}
-      {/* 完了済みのマーカーはグレーで残表示、アクティブなマーカーは点滅 */}
-      {Object.entries(CALIBRATION_MARKERS).map(([step, marker]) => {
-        const isDone = step in points;
-        const isActive = step === state.calibrationStep;
-        const color = isDone ? 'rgba(180,180,180,0.4)' : marker.color;
-
-        return (
-          <div
-            key={step}
-            style={{
-              position: 'fixed',
-              top: marker.top,
-              bottom: marker.bottom,
-              left: marker.left,
-              right: marker.right,
-              width: 72,
-              height: 72,
-              zIndex: 50,
-              pointerEvents: 'none',
-            }}
-          >
-            {/* アウターリング（パルスアニメ） */}
-            {isActive && (
-              <div style={{
-                position: 'absolute',
-                top: '50%', left: '50%',
-                width: 72, height: 72,
-                borderRadius: '50%',
-                background: 'transparent',
-                border: `3px solid ${color}`,
-                animation: 'markerRingPulse 1.2s ease-in-out infinite',
-              }} />
-            )}
-            {/* インナー円 */}
-            <div style={{
-              position: 'absolute',
-              top: '50%', left: '50%',
-              width: isActive ? 48 : 32,
-              height: isActive ? 48 : 32,
-              borderRadius: '50%',
-              background: isDone ? 'rgba(150,150,150,0.2)' : `${color}33`,
-              border: `3px solid ${color}`,
-              transform: 'translate(-50%, -50%)',
-              animation: isActive ? 'markerPulse 1.2s ease-in-out infinite' : 'none',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              transition: 'width 0.3s, height 0.3s',
-            }}>
-              {/* 中心の十字 */}
-              <div style={{ position: 'relative', width: '100%', height: '100%' }}>
-                <div style={{ position: 'absolute', top: '50%', left: 4, right: 4, height: 2, background: color, transform: 'translateY(-50%)', opacity: isDone ? 0.4 : 0.9 }} />
-                <div style={{ position: 'absolute', left: '50%', top: 4, bottom: 4, width: 2, background: color, transform: 'translateX(-50%)', opacity: isDone ? 0.4 : 0.9 }} />
-              </div>
-            </div>
-            {/* ラベル */}
-            <div style={{
-              position: 'absolute',
-              top: '100%',
-              left: '50%',
-              transform: 'translateX(-50%)',
-              marginTop: 6,
-              fontSize: 13,
-              fontWeight: 700,
-              color: isDone ? 'rgba(180,180,180,0.5)' : color,
-              whiteSpace: 'nowrap',
-              textShadow: `0 0 8px ${color}`,
-            }}>
-              {isDone ? '✓ ' : ''}{marker.label}
-            </div>
-          </div>
-        );
-      })}
-
-      {/* 中央下部の指示パネル */}
-      <div style={{
-        marginTop: 24,
-        padding: '16px 32px',
-        background: 'rgba(20, 40, 80, 0.88)',
-        border: `2px solid ${currentMarker?.color ?? '#6688ff'}`,
-        borderRadius: 16,
-        textAlign: 'center',
-        maxWidth: 560,
-        boxShadow: `0 8px 32px rgba(0,0,0,0.6), 0 0 20px ${currentMarker?.color ?? '#6688ff'}44`,
-      }}>
-        <h3 style={{ margin: '0 0 12px 0', color: '#ffffff', fontSize: 19 }}>
-          🎯 {t('キャリブレーション実行中', 'CALIBRATION IN PROGRESS')}
-        </h3>
-        <p style={{ color: '#aaddff', whiteSpace: 'pre-wrap', lineHeight: '1.7', fontSize: 15, margin: 0 }}>
-          {instruction}
-        </p>
-        <div style={{ marginTop: 14, display: 'flex', justifyContent: 'center', gap: 8 }}>
-          {Object.keys(CALIBRATION_MARKERS).map((step, i) => (
-            <div key={step} style={{
-              width: 12, height: 12, borderRadius: '50%',
-              background: step in points
-                ? '#66ffaa'
-                : step === state.calibrationStep
-                  ? CALIBRATION_MARKERS[step].color
-                  : 'rgba(255,255,255,0.2)',
-              border: '1px solid rgba(255,255,255,0.3)',
-              transition: 'background 0.3s',
-            }} title={`ステップ ${i + 1}`} />
-          ))}
-        </div>
-        <div style={{ marginTop: 10, fontSize: 12, color: '#6688aa' }}>
-          {t('【スペースキー】で座標を記録します', 'Press [SPACE] to record position')}
-        </div>
-      </div>
-    </>
-  );
-}
 
 /**
  * ミリ秒を mm:ss 形式にフォーマットする
@@ -964,27 +1000,4 @@ function formatTime(ms: number): string {
   return `${minutes}:${seconds.toString().padStart(2, '0')}`;
 }
 
-/** リザルト画面でスコアを表示するための内部コンポーネント */
-function ResultScore() {
-  const { stateRef } = useGameState();
-  const { state: musicState } = useMusicPlayer();
-  const s = stateRef.current;
-  
-  const isJa = musicState.language === 'ja';
-  const t = (ja: string, en: string) => (isJa ? ja : en);
 
-  return (
-    <div style={{ textAlign: 'center' }}>
-      <div>{s.score.toLocaleString()}</div>
-      <div style={{
-        fontSize: 'clamp(14px, 4vw, 24px)', fontWeight: 600, color: '#ffdd55', textShadow: 'none',
-        display: 'flex', gap: 'clamp(10px, 5vw, 40px)', justifyContent: 'center', marginTop: 16,
-        letterSpacing: 2, fontFamily: 'monospace'
-      }}>
-        <div>{t('最大コンボ', 'MAX COMBO')}: {s.maxCombo}</div>
-        <div>{t('ヒット', 'HITS')}: {s.hits}</div>
-        <div style={{ color: '#ff6688' }}>{t('ミス', 'MISS')}: {s.misses}</div>
-      </div>
-    </div>
-  );
-}

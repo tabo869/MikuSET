@@ -12,7 +12,12 @@ export interface HandPosition {
   palmCenter: { x: number; y: number; z: number };
   /** 手が検出されているかどうか */
   detected: boolean;
+  /** エアー太鼓：スイング（突き出し）を検知した瞬間の1フレームだけ true になる */
+  isSwinging: boolean;
+  /** エアー太鼓：最後にスイングを検知した時間（クールダウン用） */
+  lastSwingTime: number;
 }
+
 
 /** 両手のトラッキングデータ */
 export interface BothHandsData {
@@ -38,7 +43,10 @@ export const DEFAULT_HAND_POSITION: HandPosition = {
   rawFingertip: { x: 0, y: 0, z: 0 },
   palmCenter: { x: 0, y: 0, z: 0 },
   detected: false,
+  isSwinging: false,
+  lastSwingTime: 0,
 };
+
 
 /** 両手データの初期値 */
 export const DEFAULT_BOTH_HANDS: BothHandsData = {

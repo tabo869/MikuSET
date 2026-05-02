@@ -30,9 +30,13 @@ export default function ScoreHUD() {
         <div
           style={{
             position: 'absolute',
-            top: 'clamp(12px, 4vh, 24px)',
+            top: !musicState.isVirtualInputMode 
+              ? 'calc(170px + env(safe-area-inset-top))' 
+              : 'calc(12px + env(safe-area-inset-top))',
+
             left: '50%',
             transform: 'translateX(-50%)',
+
             zIndex: 20,
             display: 'flex',
             flexDirection: 'column',
@@ -81,8 +85,9 @@ export default function ScoreHUD() {
         className="hud-score-container"
         style={{
           position: 'absolute',
-          top: 'clamp(8px, 2vh, 16px)',
-          right: 'clamp(16px, 4vw, 32px)', // Paddingを増やして見切れを防止
+          top: 'calc(8px + env(safe-area-inset-top))',
+          right: 'calc(16px + env(safe-area-inset-right))', 
+
           zIndex: 20,
           display: 'flex',
           flexDirection: 'column',

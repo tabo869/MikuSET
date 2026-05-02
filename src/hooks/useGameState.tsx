@@ -26,7 +26,13 @@ export interface GameState {
   currentDifficulty: DifficultyLevel;
   /** ラグ調整オフセット（ms） */
   globalOffsetMs: number;
+  /** エアー太鼓のクールダウン時間（ms） */
+  swingCooldownMs: number;
+  /** エアー太鼓の判定閾値 */
+  motionThreshold: number;
 }
+
+
 
 export interface GameActions {
   registerHit: (isPerfect: boolean) => void;
@@ -37,7 +43,13 @@ export interface GameActions {
   setDifficulty: (level: DifficultyLevel) => void;
   /** ラグオフセットを変更する（ms） */
   setGlobalOffsetMs: (ms: number) => void;
+  /** クールダウン時間を変更する（ms） */
+  setSwingCooldownMs: (ms: number) => void;
+  /** 判定閾値を変更する */
+  setMotionThreshold: (val: number) => void;
 }
+
+
 
 export interface GameStateContextValue {
   stateRef: React.RefObject<GameState>;
@@ -57,7 +69,11 @@ const INITIAL_STATE: GameState = {
   productionLevel: 1,
   currentDifficulty: 'Normal',
   globalOffsetMs: 0,
+  swingCooldownMs: 250,
+  motionThreshold: 100000,
 };
+
+
 
 const GameStateContext = createContext<GameStateContextValue | null>(null);
 
@@ -128,8 +144,14 @@ export function GameStateProvider({ children }: GameStateProviderProps) {
     const s = stateRef.current;
     if (s.isGameOver) return;
 
+    // Easy / Normal モードでは空振りによるHP減少を無効化
+    if (s.currentDifficulty === 'Easy' || s.currentDifficulty === 'Normal') {
+      return;
+    }
+
     const newHealth = Math.max(0, s.health - 5);
     const isGameOver = newHealth <= 0;
+
 
     stateRef.current = {
       ...s,
@@ -159,13 +181,33 @@ export function GameStateProvider({ children }: GameStateProviderProps) {
     notifyListeners();
   }, [notifyListeners]);
 
+  const setSwingCooldownMs = useCallback((ms: number) => {
+    stateRef.current.swingCooldownMs = ms;
+    notifyListeners();
+  }, [notifyListeners]);
+
+  const setMotionThreshold = useCallback((val: number) => {
+    stateRef.current.motionThreshold = val;
+    notifyListeners();
+  }, [notifyListeners]);
+
+
   const getSnapshot = useCallback(() => {
     return { ...stateRef.current };
   }, []);
 
   const contextValue: GameStateContextValue = {
     stateRef,
-    actions: { registerHit, registerMiss, registerPenalty, reset, setDifficulty, setGlobalOffsetMs },
+    actions: { 
+      registerHit, 
+      registerMiss, 
+      registerPenalty, 
+      reset, 
+      setDifficulty, 
+      setGlobalOffsetMs,
+      setSwingCooldownMs,
+      setMotionThreshold,
+    },
     getSnapshot,
   };
 

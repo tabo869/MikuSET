@@ -45,7 +45,7 @@ import { useGameState } from '../hooks/useGameState';
 // ---------------------------------------------------------------------------
 let sharedAudioCtx: AudioContext | null = null;
 
-function playTambourineSE() {
+export function playTambourineSE() {
   if (typeof window === 'undefined') return;
   try {
     if (!sharedAudioCtx) {
@@ -338,44 +338,8 @@ const Note = memo(function Note({ note, positionRef, handsDataRef, onHit, onMiss
     const progress = Math.max(0, elapsed / noteSpeed);
     progressRef.current = progress;
 
-    if (stateRef.current === 'hit') {
-      opacityRef.current = Math.max(0, opacityRef.current - delta * 6);
-      if (meshRef.current) (meshRef.current.material as THREE.MeshStandardMaterial).opacity = opacityRef.current * 0.6;
-      // ★ 外側グロー球体はrefがなくuseFrameで更新できないため、
-      //    グループ全体のvisibilityで一括制御して残像を防止する
-      if (groupRef.current) groupRef.current.visible = opacityRef.current > 0.05;
-      return;
-    }
-
-    if (stateRef.current === 'missed') {
-      opacityRef.current = Math.max(0, opacityRef.current - delta * 3);
-      if (meshRef.current) (meshRef.current.material as THREE.MeshStandardMaterial).opacity = opacityRef.current * 0.3;
-      // ★ ミス時も同様にグループ全体を非表示にする
-      if (groupRef.current) groupRef.current.visible = opacityRef.current > 0.05;
-      return;
-    }
-
-    if (stateRef.current === 'magnet') {
-      magnetTimeRef.current += delta;
-      const trackingHand = handsDataRef.current[note.hand];
-      if (trackingHand.detected) {
-        // タクトの位置に向かって急激に吸い寄せる（Lerp）
-        const magPower = note.magnetPower ?? 30;
-        groupRef.current.position.lerp(trackingHand.fingertip, delta * magPower);
-        const dist = groupRef.current.position.distanceTo(trackingHand.fingertip);
-        if (dist < 0.5 || magnetTimeRef.current > 0.3) {
-          stateRef.current = 'hit';
-          hitPosRef.current.copy(groupRef.current.position);
-          showEffectRef.current = true;
-          const isPerf = isPerfectRef.current;
-          setJudgeInfo({
-            text: isPerf ? 'PERFECT' : 'HIT',
-            color: isPerf ? '#ffff00' : '#00ffff'
-          });
-          onHit(note.id, note.hand, isPerf);
-        }
-      } else {
-        // トラッキングを見失った場合は即ヒット扱い
+    if (stateRef.current === 'magnet' || stateRef.current === 'hit') {
+      if (stateRef.current === 'magnet') {
         stateRef.current = 'hit';
         hitPosRef.current.copy(groupRef.current.position);
         showEffectRef.current = true;
@@ -386,6 +350,17 @@ const Note = memo(function Note({ note, positionRef, handsDataRef, onHit, onMiss
         });
         onHit(note.id, note.hand, isPerf);
       }
+      
+      opacityRef.current = Math.max(0, opacityRef.current - delta * 6);
+      if (meshRef.current) (meshRef.current.material as THREE.MeshStandardMaterial).opacity = opacityRef.current * 0.6;
+      if (groupRef.current) groupRef.current.visible = opacityRef.current > 0.05;
+      return;
+    }
+
+    if (stateRef.current === 'missed') {
+      opacityRef.current = Math.max(0, opacityRef.current - delta * 3);
+      if (meshRef.current) (meshRef.current.material as THREE.MeshStandardMaterial).opacity = opacityRef.current * 0.3;
+      if (groupRef.current) groupRef.current.visible = opacityRef.current > 0.05;
       return;
     }
 
@@ -420,28 +395,34 @@ const Note = memo(function Note({ note, positionRef, handsDataRef, onHit, onMiss
 
     const noteTimingWindow = note.timingWindow ?? HIT_TIMING_WINDOW;
     const timeDiff = Math.abs(now - note.startTime);
-    if (timeDiff < noteTimingWindow && !resolvedRef.current) {
+    if (!isAutoPlayMode && timeDiff < noteTimingWindow && !resolvedRef.current) {
       const notePos = groupRef.current.position;
       
       // note.hand で指定された手だけをチェックする
       const trackingHand = handsDataRef.current[note.hand];
       
-      if (trackingHand.detected) {
-        const dx = notePos.x - trackingHand.fingertip.x;
-        const dy = notePos.y - trackingHand.fingertip.y;
-        const dz = notePos.z - trackingHand.fingertip.z;
-        const xyDist = Math.sqrt(dx * dx + dy * dy);
-
-        // 難易度に応じたヒットボックス半径
-        const noteHitboxRadius = note.hitboxRadius ?? HIT_DISTANCE_XY;
-        if (xyDist < noteHitboxRadius && Math.abs(dz) < HIT_DISTANCE_Z) {
-          stateRef.current = 'magnet';
-          resolvedRef.current = true;
-          // PERFECT判定 (HIT_PERFECT_WINDOW 以内)
-          isPerfectRef.current = timeDiff < HIT_PERFECT_WINDOW;
-
-          return;
-        }
+      // エアー太鼓（動体検知）によるヒット判定
+      if (trackingHand.isSwinging) {
+        // スイングフラグを消費して多重ヒットを防止（一番手前のノーツだけがヒットする）
+        trackingHand.isSwinging = false;
+        
+        stateRef.current = 'hit'; // マグネット演出をスキップして即時ヒット
+        resolvedRef.current = true;
+        isPerfectRef.current = timeDiff < HIT_PERFECT_WINDOW;
+        
+        hitPosRef.current.copy(groupRef.current.position);
+        showEffectRef.current = true;
+        
+        const isPerf = isPerfectRef.current;
+        setJudgeInfo({
+          text: isPerf ? 'PERFECT' : 'HIT',
+          color: isPerf ? '#ffff00' : '#00ffff'
+        });
+        
+        playTambourineSE(); // 効果音を即座に鳴らす
+        onHit(note.id, note.hand, isPerf);
+        
+        return;
       }
     }
   });

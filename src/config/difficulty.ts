@@ -46,7 +46,7 @@ export const DIFFICULTIES: Record<DifficultyLevel, DifficultyConfig> = {
   Easy: {
     label: 'Easy — やさしい',
     textUnit: 'word',
-    mergeCount: 3,
+    mergeCount: 2,
     speed: 2800,
     hitboxRadius: 6.0,
     magnetPower: 35,

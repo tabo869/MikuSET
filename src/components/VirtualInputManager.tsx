@@ -136,16 +136,19 @@ export default function VirtualInputManager({ handsDataRef, isActive }: VirtualI
 
   const activateHand = useCallback((hand: 'left' | 'right', x: number, y: number, key: string) => {
     handsDataRef.current[hand].detected = true;
+    handsDataRef.current[hand].isSwinging = true; // タッチした瞬間を「スイング」として認識させる
     setFingertip(handsDataRef.current[hand].fingertip, x, y, Z_HIT);
     flashCell(key, true);
   }, [handsDataRef, flashCell]);
 
   const deactivateHand = useCallback((hand: 'left' | 'right', key: string) => {
     handsDataRef.current[hand].detected = false;
+    handsDataRef.current[hand].isSwinging = false;
     const defaultX = hand === 'left' ? -2.0 : 2.0;
     setFingertip(handsDataRef.current[hand].fingertip, defaultX, -3.5, 0);
     flashCell(key, false);
   }, [handsDataRef, flashCell]);
+
 
   // モード有効時：両手を未検出で初期化
   useEffect(() => {
@@ -237,9 +240,10 @@ export default function VirtualInputManager({ handsDataRef, isActive }: VirtualI
       width: `${areaW}%`,
       height: `${areaH}%`,
       display: 'flex',
-      zIndex: 10,
+      zIndex: 2400, // HUD(20)や3Dシーンより前面、MusicManager(2500)より背面
       pointerEvents: 'auto',
     }}>
+
       {/* 左手エリア 3x3 (トラッキング左半分内) */}
       <div style={{
         width: '50%',
