@@ -30,6 +30,19 @@ const FaceTracker: React.FC<FaceTrackerProps> = ({ isVisible }) => {
   const consecutiveMissFramesRef = useRef(0);
   const isScanningRef = useRef(false);
 
+  // 角度ぐらつき防止（チャタリング防止）用のスナップ変数
+  const currentSnapAngleRef = useRef(0);   // 現在のスナップ目標角度 (ラジアン)
+  const pendingSnapAngleRef = useRef(0);   // 移行検証中の新しいスナップ目標角度
+  const angleChangeCounterRef = useRef(0); // 移行検証フレームカウンター
+
+  // 表情判定のノイズディバウンス用カウンター
+  const activeSmileFramesRef = useRef(0);
+  const activeJawOpenFramesRef = useRef(0);
+
+  // 表情判定の閾値（0.58に引き上げてノイズを低減）
+  const TRIGGER_THRESHOLD = 0.58;
+  const REQUIRED_FRAMES = 4; // 表情がこのフレーム数（約100ms）連続で維持されたらトリガー
+
   // スキャン対象の代表角度（0度、90度、-90度、180度）
   const SCAN_ANGLES = [0, Math.PI / 2, -Math.PI / 2, Math.PI];
 
@@ -172,14 +185,60 @@ const FaceTracker: React.FC<FaceTrackerProps> = ({ isVisible }) => {
         if (leftEye && rightEye) {
           const dx = rightEye.x - leftEye.x;
           const dy = rightEye.y - leftEye.y;
-          detectedAngle = Math.atan2(dy, dx); // 補正後のキャンバス上での傾き
+          detectedAngle = Math.atan2(dy, dx); // 補正後のキャンバス上でのズレ
 
-          // 微小な目の傾きを回転角度にフィードバック（アライメントサーボ）
-          // 目の水平ラインが揃う（detectedAngleが0になる）ように rotationAngleRef を調節
-          rotationAngleRef.current += detectedAngle * 0.12;
+          // カメラ映像に対するトータルの実際の顔の傾き
+          const totalAngle = rotationAngleRef.current + detectedAngle;
+          let totalDeg = (totalAngle * 180) / Math.PI;
+
+          // 角度を [-180, 180] の範囲に正規化
+          let normDeg = totalDeg % 360;
+          if (normDeg > 180) normDeg -= 360;
+          if (normDeg < -180) normDeg += 360;
+
+          // 代表角度（0, 90, -90, 180）への段階的スナップ（境界付近に遊びを持たせる）
+          let snapDeg = 0;
+          if (Math.abs(normDeg) < 35) {
+            snapDeg = 0;
+          } else if (Math.abs(normDeg - 90) < 40) {
+            snapDeg = 90;
+          } else if (Math.abs(normDeg + 90) < 40) {
+            snapDeg = -90;
+          } else if (Math.abs(normDeg) > 145) {
+            snapDeg = 180;
+          } else {
+            // 境界付近（グレーゾーン）では前回のスナップ角度を維持（ヒステリシス）
+            snapDeg = Math.round((currentSnapAngleRef.current * 180) / Math.PI);
+          }
+
+          const snapRad = (snapDeg * Math.PI) / 180;
+
+          // 新しいスナップ角度が検出されたら一定時間（45フレーム＝約1.5秒）安定するまで待機
+          if (snapRad !== currentSnapAngleRef.current) {
+            if (snapRad === pendingSnapAngleRef.current) {
+              angleChangeCounterRef.current += 1;
+              if (angleChangeCounterRef.current > 45) {
+                currentSnapAngleRef.current = snapRad;
+                angleChangeCounterRef.current = 0;
+              }
+            } else {
+              pendingSnapAngleRef.current = snapRad;
+              angleChangeCounterRef.current = 0;
+            }
+          } else {
+            angleChangeCounterRef.current = 0;
+          }
+
+          // 確定したスナップ角度へ滑らかに遷移させる（遷移時以外は完全に固定される）
+          rotationAngleRef.current += (currentSnapAngleRef.current - rotationAngleRef.current) * 0.12;
+
+          // 完全にスナップ値に近づいたら値を丸めてぐらつきを排除
+          if (Math.abs(currentSnapAngleRef.current - rotationAngleRef.current) < 0.01) {
+            rotationAngleRef.current = currentSnapAngleRef.current;
+          }
         }
 
-        // --- C. 表情ブレンドシェイプの判定とSEトリガー ---
+        // --- C. 表情ブレンドシェイプの判定とSEトリガー（ディバウンス処理） ---
         if (result.faceBlendshapes && result.faceBlendshapes.length > 0) {
           const shapes = result.faceBlendshapes[0].categories;
           const smileLeft = shapes.find(s => s.categoryName === 'mouthSmileLeft')?.score || 0;
@@ -191,15 +250,30 @@ const FaceTracker: React.FC<FaceTrackerProps> = ({ isVisible }) => {
           setSmileScore(smile);
           setJawOpenScore(jawOpen);
 
-          // クールダウン経過チェック
-          if (now - lastTriggerTimeRef.current > COOLDOWN_MS) {
-            if (smile > 0.5) {
+          // 1. 笑顔の判定（TRIGGER_THRESHOLD以上の状態がREQUIRED_FRAMES連続した場合のみトリガー）
+          if (smile > TRIGGER_THRESHOLD) {
+            activeSmileFramesRef.current += 1;
+            if (activeSmileFramesRef.current >= REQUIRED_FRAMES && now - lastTriggerTimeRef.current > COOLDOWN_MS) {
               lastTriggerTimeRef.current = now;
+              activeSmileFramesRef.current = 0;
+              activeJawOpenFramesRef.current = 0;
               audioPlayer.triggerQuantized('sparkle');
-            } else if (jawOpen > 0.5) {
+            }
+          } else {
+            activeSmileFramesRef.current = 0;
+          }
+
+          // 2. 口開きの判定
+          if (jawOpen > TRIGGER_THRESHOLD) {
+            activeJawOpenFramesRef.current += 1;
+            if (activeJawOpenFramesRef.current >= REQUIRED_FRAMES && now - lastTriggerTimeRef.current > COOLDOWN_MS) {
               lastTriggerTimeRef.current = now;
+              activeSmileFramesRef.current = 0;
+              activeJawOpenFramesRef.current = 0;
               audioPlayer.triggerQuantized('tambourine');
             }
+          } else {
+            activeJawOpenFramesRef.current = 0;
           }
         }
       } else {
@@ -207,6 +281,8 @@ const FaceTracker: React.FC<FaceTrackerProps> = ({ isVisible }) => {
         consecutiveMissFramesRef.current += 1;
         setSmileScore(0);
         setJawOpenScore(0);
+        activeSmileFramesRef.current = 0;
+        activeJawOpenFramesRef.current = 0;
 
         // 30フレーム連続で見失った場合、スキャン（異なる角度を順次試す）を開始
         if (consecutiveMissFramesRef.current > 30) {
