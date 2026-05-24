@@ -76,6 +76,8 @@ export interface MusicPlayerState {
   hasCamera: boolean;
   /** 流れる歌詞を表示しないかどうか */
   hideScrollingLyrics: boolean;
+  /** マジカル・ゲスト（自動演奏＆表情セッション）モードかどうか */
+  isMagicalGuestMode: boolean;
 }
 
 
@@ -95,6 +97,7 @@ export interface MusicPlayerActions {
   setLanguage: (lang: 'en' | 'ja') => void;
   toggleInputLabels: () => void;
   toggleHideScrollingLyrics: () => void;
+  toggleMagicalGuestMode: () => void;
 }
 
 
@@ -154,6 +157,7 @@ export function MusicProvider({ children }: MusicProviderProps) {
     isMobile: isMobile,
     hasCamera: true,
     hideScrollingLyrics: false,
+    isMagicalGuestMode: false,
   });
 
 
@@ -237,6 +241,7 @@ export function MusicProvider({ children }: MusicProviderProps) {
       mediaElement: mediaEl,
     });
     playerRef.current = player;
+    (window as any).__mikusetPlayer = player;
 
     player.addListener({
       onAppReady(app: IPlayerApp) {
@@ -434,6 +439,7 @@ export function MusicProvider({ children }: MusicProviderProps) {
       },
       onTimeUpdate(position: number) {
         positionRef.current = position;
+        (window as any).__mikusetCurrentPosition = position;
         if (position > maxPositionRef.current) maxPositionRef.current = position;
       },
       onPlay() {
@@ -490,6 +496,7 @@ export function MusicProvider({ children }: MusicProviderProps) {
     win.__mikusetFirstWordTime = 0;
     win.__mikusetLastWordTime = 0;
     win.__mikusetVideoDuration = 0;
+    win.__mikusetCurrentPosition = 0;
     if (win.__mikusetHitWordIds) {
       win.__mikusetHitWordIds.clear();
     }
@@ -571,6 +578,19 @@ export function MusicProvider({ children }: MusicProviderProps) {
     }));
   }, []);
 
+  const toggleMagicalGuestMode = useCallback(() => {
+    setState((prev) => {
+      const nextMode = !prev.isMagicalGuestMode;
+      return {
+        ...prev,
+        isMagicalGuestMode: nextMode,
+        // マジカル・ゲストONなら、自動的にオートプレイをONにし、仮想キーボードモードをOFF（カメラON）にする
+        isAutoPlayMode: nextMode ? true : prev.isAutoPlayMode,
+        isVirtualInputMode: nextMode ? false : prev.isVirtualInputMode,
+      };
+    });
+  }, []);
+
   const toggleVirtualInputMode = useCallback(() => {
     setState((prev) => ({
       ...prev,
@@ -593,8 +613,8 @@ export function MusicProvider({ children }: MusicProviderProps) {
 
   // actions は固定（useCallback済み）なので一度だけ生成
   const actions = useMemo<MusicPlayerActions>(
-    () => ({ play, pause, stop, togglePlayPause, toggleTrackingTest, setCalibrationStep, setCalibrationData, selectSong, toggleAutoPlay, toggleVirtualInputMode, setLanguage, toggleInputLabels, toggleHideScrollingLyrics }),
-    [play, pause, stop, togglePlayPause, toggleTrackingTest, setCalibrationStep, setCalibrationData, selectSong, toggleAutoPlay, toggleVirtualInputMode, setLanguage, toggleInputLabels, toggleHideScrollingLyrics]
+    () => ({ play, pause, stop, togglePlayPause, toggleTrackingTest, setCalibrationStep, setCalibrationData, selectSong, toggleAutoPlay, toggleMagicalGuestMode, toggleVirtualInputMode, setLanguage, toggleInputLabels, toggleHideScrollingLyrics }),
+    [play, pause, stop, togglePlayPause, toggleTrackingTest, setCalibrationStep, setCalibrationData, selectSong, toggleAutoPlay, toggleMagicalGuestMode, toggleVirtualInputMode, setLanguage, toggleInputLabels, toggleHideScrollingLyrics]
   );
 
   // contextValue は state が変わった時のみ再生成

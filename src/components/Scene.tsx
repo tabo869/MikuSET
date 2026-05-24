@@ -682,7 +682,151 @@ export default function Scene() {
           maxDistance={150}
           target={[0, -5, -80]}
         />
+        <MagicalGuestEffects />
       </Canvas>
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// マジカル・ゲストモード用 3D 視覚効果（波紋＆パーティクル）
+// ---------------------------------------------------------------------------
+interface ParticleItem {
+  id: string;
+  position: THREE.Vector3;
+  velocity: THREE.Vector3;
+  color: string;
+  size: number;
+  opacity: number;
+  life: number;
+}
+
+interface RippleItem {
+  id: string;
+  scale: number;
+  opacity: number;
+  color: string;
+}
+
+function MagicalGuestEffects() {
+  const [ripples, setRipples] = useState<RippleItem[]>([]);
+  const [particles, setParticles] = useState<ParticleItem[]>([]);
+
+  useEffect(() => {
+    const handleTrigger = (e: any) => {
+      const type = e.detail?.type; // 'sparkle' | 'tambourine'
+      const id = Math.random().toString(36).substring(2, 9);
+      
+      // 1. 波紋（リップル）の追加
+      const rippleColor = type === 'sparkle' ? '#ff66b2' : '#00d2ff';
+      setRipples((prev) => [
+        ...prev,
+        { id, scale: 0.1, opacity: 0.8, color: rippleColor }
+      ]);
+
+      // 2. パーティクル（キラキラ）の追加（35個）
+      const newParticles: ParticleItem[] = [];
+      const colors = type === 'sparkle'
+        ? ['#ff3399', '#ff85c2', '#ffeb3b', '#e040fb']
+        : ['#00b2ff', '#66d9ff', '#00e5ff', '#1de9b6'];
+
+      for (let i = 0; i < 35; i++) {
+        // カメラの手前（Z=7付近）のランダムな位置
+        const x = (Math.random() - 0.5) * 8;
+        const y = -4 + Math.random() * 2;
+        const z = 6 + Math.random() * 1.5;
+
+        // 上昇および拡散方向の初期速度
+        const vx = (Math.random() - 0.5) * 4;
+        const vy = 5 + Math.random() * 5;
+        const vz = (Math.random() - 0.5) * 2;
+
+        const color = colors[Math.floor(Math.random() * colors.length)];
+        const size = 0.05 + Math.random() * 0.12;
+
+        newParticles.push({
+          id: `${id}-${i}`,
+          position: new THREE.Vector3(x, y, z),
+          velocity: new THREE.Vector3(vx, vy, vz),
+          color,
+          size,
+          opacity: 1.0,
+          life: 1.0
+        });
+      }
+      setParticles((prev) => [...prev, ...newParticles]);
+    };
+
+    window.addEventListener('mikuset-magical-trigger', handleTrigger);
+    return () => {
+      window.removeEventListener('mikuset-magical-trigger', handleTrigger);
+    };
+  }, []);
+
+  useFrame((_, delta) => {
+    const d = Math.min(0.1, delta); // 極端なフレーム落ち対策
+
+    // A. 波紋の更新
+    setRipples((prev) =>
+      prev
+        .map((r) => ({
+          ...r,
+          scale: r.scale + d * 22.0,
+          opacity: r.opacity - d * 1.3
+        }))
+        .filter((r) => r.opacity > 0)
+    );
+
+    // B. パーティクルの更新
+    setParticles((prev) =>
+      prev
+        .map((p) => {
+          const nextPos = p.position.clone().addScaledVector(p.velocity, d);
+          const nextVel = p.velocity.clone().multiplyScalar(0.94);
+          nextVel.y += d * 1.8; // 上昇方向の微小加速
+
+          const nextLife = p.life - d * 0.85;
+          return {
+            ...p,
+            position: nextPos,
+            velocity: nextVel,
+            life: nextLife,
+            opacity: Math.max(0, nextLife)
+          };
+        })
+        .filter((p) => p.life > 0)
+    );
+  });
+
+  return (
+    <group>
+      {/* リップルエフェクト */}
+      {ripples.map((r) => (
+        <mesh key={r.id} position={[0, -1, 6.8]}>
+          <ringGeometry args={[r.scale, r.scale + 0.08, 64]} />
+          <meshBasicMaterial
+            color={r.color}
+            transparent
+            opacity={r.opacity}
+            depthWrite={false}
+            side={THREE.DoubleSide}
+          />
+        </mesh>
+      ))}
+
+      {/* パーティクルエフェクト */}
+      {particles.map((p) => (
+        <mesh key={p.id} position={p.position}>
+          <tetrahedronGeometry args={[p.size]} />
+          <meshBasicMaterial
+            color={p.color}
+            transparent
+            opacity={p.opacity}
+            depthWrite={false}
+          />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+

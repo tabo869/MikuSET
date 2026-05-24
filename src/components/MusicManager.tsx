@@ -6,6 +6,7 @@ import { DIFFICULTIES, DIFFICULTY_LEVELS } from '../config/difficulty';
 import type { DifficultyLevel } from '../config/difficulty';
 import ResultScreen from './ResultScreen';
 import { isHighScore, getRankPosition } from '../utils/ranking';
+import FaceTracker from './FaceTracker';
 
 /**
  * MusicManager — 音楽再生制御UIコンポーネント
@@ -789,6 +790,38 @@ export default function MusicManager() {
             {t('オートプレイ (演出確認用)', 'AUTO PLAY (DEMO)')}
           </label>
 
+          {/* マジカル・ゲスト（自動演奏＆表情セッション）ボタン */}
+          <label style={{
+            marginTop: 16,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            cursor: 'pointer',
+            color: '#ffffff',
+            fontSize: 14,
+            fontWeight: 800,
+            background: state.isMagicalGuestMode 
+              ? 'linear-gradient(135deg, rgba(255, 51, 153, 0.25) 0%, rgba(0, 210, 255, 0.15) 100%)' 
+              : 'rgba(0, 0, 0, 0.5)',
+            padding: '10px 16px',
+            borderRadius: 16,
+            border: state.isMagicalGuestMode 
+              ? '2px solid rgba(255, 51, 153, 0.7)' 
+              : '1px solid rgba(255,255,255,0.2)',
+            boxShadow: state.isMagicalGuestMode 
+              ? '0 0 15px rgba(255, 51, 153, 0.4), inset 0 0 8px rgba(255, 51, 153, 0.2)' 
+              : 'none',
+            transition: 'all 0.3s ease'
+          }}>
+            <input 
+              type="checkbox" 
+              checked={state.isMagicalGuestMode}
+              onChange={actions.toggleMagicalGuestMode}
+              style={{ width: 16, height: 16, cursor: 'pointer' }}
+            />
+            {t('✨ マジカル・ゲスト (自動演奏＆表情セッション)', '✨ MAGICAL GUEST (AUTO + EXPRESSION)')}
+          </label>
+
           {/* 仮想入力（キーボード・タッチ）ボタン */}
           <label style={{
             marginTop: 16,
@@ -964,6 +997,9 @@ export default function MusicManager() {
           </div>
         </div>
       )}
+
+      {/* マジカル・ゲスト用の表情トラッカーカメラプレビュー */}
+      <FaceTracker isVisible={state.isMagicalGuestMode} />
     </>
   );
 }
