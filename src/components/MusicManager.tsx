@@ -66,6 +66,12 @@ export default function MusicManager() {
     return () => clearInterval(interval);
   }, [gameStateRef]);
 
+  // 楽曲が切り替わったらゲーム状態とリザルト画面表示をリセットする
+  useEffect(() => {
+    gameActions.reset();
+    setShowResult(false);
+  }, [state.activeSongUrl, gameActions]);
+
   /** 難易度変更ハンドラ — ローカルstate + Refの両方を更新 */
   const handleDifficultyChange = (level: DifficultyLevel) => {
     setSelectedDifficulty(level);

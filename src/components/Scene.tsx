@@ -13,9 +13,7 @@ import { useGameState } from '../hooks/useGameState';
 import { playTambourineSE } from './Note';
 import type { BothHandsDataRef, HandDataRef } from '../types/hand';
 import { CONTEST_SONGS } from '../config/songs';
-import { DIFFICULTY_LEVELS } from '../config/difficulty';
 import { getRankingByDifficulty } from '../utils/ranking';
-import type { RankingEntry } from '../utils/ranking';
 import type { DifficultyLevel } from '../config/difficulty';
 
 import { DEFAULT_BOTH_HANDS } from '../types/hand';
@@ -40,37 +38,99 @@ function createHandProxy(
 /**
  * 画面サイズ（アスペクト比）に応じてカメラのFOVを調整するコンポーネント
  */
-function ResponsiveCamera() {
+function ResponsiveCamera({ cinematicActive }: { cinematicActive: boolean }) {
   const { viewport } = useThree();
   const aspect = viewport.aspect;
   const baseFov = 50;
-  const responsiveFov = aspect < 1.77 ? baseFov * (1.77 / aspect) : baseFov;
-  const finalFov = Math.min(responsiveFov, 95);
+  // ドローン演出中はFOVをやや広めに固定して臨場感を出す
+  const cinematicFov = 65;
+  const normalFov = aspect < 1.77 ? baseFov * (1.77 / aspect) : baseFov;
+  
+  const finalFov = cinematicActive ? cinematicFov : Math.min(normalFov, 95);
 
-  return <PerspectiveCamera makeDefault position={[0, 0, 8]} fov={finalFov} />;
+  return (
+    <PerspectiveCamera 
+      makeDefault 
+      position={cinematicActive ? undefined : [0, 0, 8]} 
+      fov={finalFov} 
+    />
+  );
 }
 
 /**
- * オートプレイ解除時にカメラ位置をデフォルトにリセットする
+ * カメラ位置および OrbitControls ターゲットを滑らかにリセットする制御コンポーネント
  */
-function CameraReset({ isAutoPlayMode, cinematicActive }: { isAutoPlayMode: boolean, cinematicActive: boolean }) {
+interface CameraResetProps {
+  isAutoPlayMode: boolean;
+  cinematicActive: boolean;
+  controlsRef: React.RefObject<any>;
+  resetTrigger: number;
+  onResetComplete: () => void;
+}
+
+function CameraReset({ 
+  isAutoPlayMode, 
+  cinematicActive, 
+  controlsRef, 
+  resetTrigger, 
+  onResetComplete 
+}: CameraResetProps) {
   const { camera } = useThree();
+  const [resetState, setResetState] = useState<'idle' | 'resetting'>('idle');
+  const progressRef = useRef(0);
+  const startPosRef = useRef(new THREE.Vector3());
+  const startTargetRef = useRef(new THREE.Vector3());
+  
   const prevAutoPlay = useRef(isAutoPlayMode);
   const prevCinematic = useRef(cinematicActive);
 
+  // リセットトリガーを監視して補間アニメーションを開始
+  useEffect(() => {
+    if (resetTrigger > 0 && controlsRef.current) {
+      startPosRef.current.copy(camera.position);
+      startTargetRef.current.copy(controlsRef.current.target);
+      progressRef.current = 0;
+      setResetState('resetting');
+    }
+  }, [resetTrigger, camera, controlsRef]);
+
+  // オートプレイ終了時や演出切り替え時の瞬時クリアガード
   useEffect(() => {
     const autoPlayStopped = prevAutoPlay.current && !isAutoPlayMode;
     const cinematicStopped = prevCinematic.current && !cinematicActive;
 
     if (autoPlayStopped || cinematicStopped) {
+      setResetState('idle'); // 実行中のアニメーションがあれば中断
       camera.position.set(0, 0, 8);
       camera.rotation.set(0, 0, 0);
       camera.lookAt(0, 0, 0);
+      if (controlsRef.current) {
+        controlsRef.current.target.set(0, 0, 0);
+        controlsRef.current.update();
+      }
       camera.updateProjectionMatrix();
     }
     prevAutoPlay.current = isAutoPlayMode;
     prevCinematic.current = cinematicActive;
-  }, [isAutoPlayMode, cinematicActive, camera]);
+  }, [isAutoPlayMode, cinematicActive, camera, controlsRef]);
+
+  // 毎フレームごとのイージング補間処理
+  useFrame((_, delta) => {
+    if (resetState === 'resetting' && controlsRef.current) {
+      progressRef.current += delta * 1.6; // 約0.6秒で補間完了
+      const t = Math.min(1, progressRef.current);
+      const ease = t * t * (3 - 2 * t); // Smoothstep イージング
+
+      camera.position.lerpVectors(startPosRef.current, new THREE.Vector3(0, 0, 8), ease);
+      controlsRef.current.target.lerpVectors(startTargetRef.current, new THREE.Vector3(0, -5, -80), ease);
+      controlsRef.current.update();
+
+      if (t >= 1) {
+        setResetState('idle');
+        onResetComplete();
+      }
+    }
+  });
 
   return null;
 }
@@ -148,6 +208,9 @@ function PlayAreaFrame({ isVisible }: { isVisible: boolean }) {
   );
 }
 
+const INTRO_DURATION = 6.0; // アプローチ軌道の所要時間（秒）
+const PEAK_HEIGHT = 12.0;    // 上昇する放物線のピーク高さ
+
 /**
  * ドローンシネマティック
  */
@@ -158,30 +221,27 @@ function DroneCinematic({ active }: { active: boolean }) {
 
   const curve = useMemo(() => {
     return new THREE.CatmullRomCurve3([
-      new THREE.Vector3(3.5, -2, -92),    // スタート：ボーカルの斜め後方（シルエット内部への入り込みを完全に回避）
-      new THREE.Vector3(0, 22, -82),      // 上昇：全体俯瞰
-      new THREE.Vector3(65, 18, -40),     // 右翼
-      new THREE.Vector3(35, 10, 20),      // 後方
-      new THREE.Vector3(0, 14, 55),       // 正面
-      new THREE.Vector3(-35, 10, 20),     // 左翼
-      new THREE.Vector3(-65, 18, -40),    // 左側接近
-      new THREE.Vector3(-25, 12, -82),    // 裏側へ
+      new THREE.Vector3(0, 3, -86),       // スタート：ボーカル背後上部（Zを -92 から -86 に変更して背面スクリーンとの干渉を回避）
+      new THREE.Vector3(25, 1, -80),      // ステージ右手へ回り込む
+      new THREE.Vector3(45, 6, -45),      // 観客席右手奥
+      new THREE.Vector3(0, 10, -20),      // 会場中央上空
+      new THREE.Vector3(-45, 6, -45),     // 観客席左手奥
+      new THREE.Vector3(-25, 1, -80),     // ステージ左手へ回り込む
     ], true);
   }, []);
 
-  const targetLookAt = useMemo(() => new THREE.Vector3(0, -5, 0), []);
+  const targetLookAt = useMemo(() => new THREE.Vector3(0, -5, -80), []);
   const currentLookAt = useRef(new THREE.Vector3());
   
   useEffect(() => {
     if (active) {
-      // 演出開始時に即座にカメラを初期位置へワープさせる
-      const startPos = curve.getPointAt(0);
-      camera.position.copy(startPos);
-      currentLookAt.current.copy(targetLookAt);
+      // 演出開始時に即座にカメラを初期位置（ゲーム画面位置）へワープさせる
+      camera.position.set(0, 0, 8);
+      currentLookAt.current.set(0, 0, 0);
       camera.lookAt(currentLookAt.current);
       camera.updateProjectionMatrix();
     }
-  }, [active, curve, targetLookAt, camera]);
+  }, [active, camera]);
 
   useFrame((state) => {
     if (!active) {
@@ -198,33 +258,48 @@ function DroneCinematic({ active }: { active: boolean }) {
       prevActive.current = true;
       // 1フレーム目から確実に位置を固定
       try {
-        const startPos = curve.getPointAt(0);
-        camera.position.copy(startPos);
-        camera.lookAt(targetLookAt);
+        camera.position.set(0, 0, 8);
+        currentLookAt.current.set(0, 0, 0);
+        camera.lookAt(currentLookAt.current);
       } catch (err) {
         console.error("[DroneCinematic] Initialization error:", err);
       }
     }
 
     const elapsed = state.clock.elapsedTime - startTimeRef.current;
-    const t = (elapsed * 0.03) % 1;
-    const pos = curve.getPointAt(t);
 
-    // 最初のアニメーション開始時は、前のカメラ位置からの「滑り（Lerp）」を回避するために即座にセットする
-    if (elapsed < 0.25) {
+    if (elapsed < INTRO_DURATION) {
+      // 1. アプローチ軌道（イントロフェーズ）
+      const u = elapsed / INTRO_DURATION;
+      
+      // カメラ位置：(0, 0, 8) から (0, 3, -86) まで直線補間し、Y軸方向に放物線を描いて上昇・下降
+      const startPos = new THREE.Vector3(0, 0, 8);
+      const endPos = new THREE.Vector3(0, 3, -86);
+      const pos = new THREE.Vector3().lerpVectors(startPos, endPos, u);
+      pos.y += PEAK_HEIGHT * 4 * u * (1 - u);
+
+      // 注視点：(0, 0, 0) からボーカル位置 (0, -5, -80) まで直線補間
+      const startLook = new THREE.Vector3(0, 0, 0);
+      const endLook = targetLookAt;
+      const lookAtPoint = new THREE.Vector3().lerpVectors(startLook, endLook, u);
+
       camera.position.copy(pos);
-    } else {
-      camera.position.lerp(pos, 0.08);
-    }
-
-    // 注視点も動的に補間。スタート時は targetLookAt (客席方向) を優先
-    const lookAtPoint = targetLookAt.clone().lerp(curve.getPointAt((t + 0.05) % 1), 0.15);
-    if (elapsed < 0.25) {
       currentLookAt.current.copy(lookAtPoint);
+      camera.lookAt(currentLookAt.current);
     } else {
-      currentLookAt.current.lerp(lookAtPoint, 0.08);
+      // 2. 本来の旋回軌道（ループフェーズ）
+      const t_loop = elapsed - INTRO_DURATION;
+      const t = (t_loop * 0.03) % 1;
+      const pos = curve.getPointAt(t);
+
+      // 前フレームの位置から滑らかに補間
+      camera.position.lerp(pos, 0.08);
+
+      // 注視点も動的に補間。ターゲット (客席方向) を強く優先し、移動方向に少しだけ向ける
+      const lookAtPoint = targetLookAt.clone().lerp(curve.getPointAt((t + 0.02) % 1), 0.05);
+      currentLookAt.current.lerp(lookAtPoint, 0.1);
+      camera.lookAt(currentLookAt.current);
     }
-    camera.lookAt(currentLookAt.current);
   });
 
   return null;
@@ -421,15 +496,82 @@ export default function Scene() {
 
   const [cinematicActive, setCinematicActive] = useState(false);
 
+  // 視点リセット制御用の状態変数とRef
+  const controlsRef = useRef<any>(null);
+  const [resetTrigger, setResetTrigger] = useState(0);
+  const [showResetButton, setShowResetButton] = useState(false);
+  const pendingCinematicRef = useRef<boolean>(false);
+  const isResettingRef = useRef<boolean>(false);
+
+  // カメラがデフォルト位置・ターゲットからズレているか判定
+  const isCameraMoved = useCallback(() => {
+    if (!controlsRef.current) return false;
+    const camera = controlsRef.current.object;
+    if (!camera) return false;
+
+    const distToDefault = camera.position.distanceTo(new THREE.Vector3(0, 0, 8));
+    const distToTarget = controlsRef.current.target.distanceTo(new THREE.Vector3(0, -5, -80));
+
+    // 0.1ユニット以上のズレを検知
+    return distToDefault > 0.1 || distToTarget > 0.1;
+  }, []);
+
+  // カメラ操作時にリセットボタンの表示状態を更新
+  const handleControlsChange = useCallback(() => {
+    if (isResettingRef.current) {
+      setShowResetButton(false);
+      return;
+    }
+    if (musicState.isAutoPlayMode && musicState.isPlaying && !cinematicActive) {
+      setShowResetButton(isCameraMoved());
+    } else {
+      setShowResetButton(false);
+    }
+  }, [musicState.isAutoPlayMode, musicState.isPlaying, cinematicActive, isCameraMoved]);
+
+  // 手動リセットボタン押下時
+  const handleResetView = useCallback(() => {
+    isResettingRef.current = true;
+    setResetTrigger((prev) => prev + 1);
+    setShowResetButton(false);
+  }, []);
+
+  // 補間リセット完了時（自動リセット後のドローン演出移行用）
+  const handleResetComplete = useCallback(() => {
+    isResettingRef.current = false;
+    if (pendingCinematicRef.current) {
+      pendingCinematicRef.current = false;
+      setCinematicActive(true);
+    }
+    setShowResetButton(false);
+  }, []);
+
+  // 再生停止時の状態クリーンアップ
+  useEffect(() => {
+    if (!musicState.isPlaying) {
+      setShowResetButton(false);
+      pendingCinematicRef.current = false;
+      isResettingRef.current = false;
+    }
+  }, [musicState.isPlaying]);
 
   useEffect(() => {
-    const startCinematic = (e: any) => {
-      // ステージクリア時は常にドローン演出を有効化
-      setCinematicActive(true);
-      stateRef.current.productionLevel = 8;
+    const startCinematic = () => {
+      // もし視点が移動している場合は、一旦デフォルト視点へリセットした後にドローン演出を開始する
+      if (musicState.isAutoPlayMode && isCameraMoved()) {
+        isResettingRef.current = true;
+        pendingCinematicRef.current = true;
+        setResetTrigger((prev) => prev + 1);
+        stateRef.current.productionLevel = 8;
+      } else {
+        // 視点移動が無い場合は即座にドローン演出を開始
+        setCinematicActive(true);
+        stateRef.current.productionLevel = 8;
+      }
     };
     const stopCinematic = () => {
       setCinematicActive(false);
+      pendingCinematicRef.current = false;
     };
 
     window.addEventListener('mikuset-result-cinematic' as any, startCinematic);
@@ -438,7 +580,7 @@ export default function Scene() {
       window.removeEventListener('mikuset-result-cinematic' as any, startCinematic);
       window.removeEventListener('mikuset-stop-cinematic' as any, stopCinematic);
     };
-  }, [stateRef]);
+  }, [stateRef, musicState.isAutoPlayMode, isCameraMoved]);
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%', background: '#000' }}>
@@ -464,16 +606,60 @@ export default function Scene() {
 
       <PhraseDisplay positionRef={positionRef} />
 
+      {/* 視点手動リセットボタン（オートプレイ中に視点移動があるときのみ浮き出て表示） */}
+      {showResetButton && (
+        <button
+          onClick={handleResetView}
+          style={{
+            position: 'absolute',
+            bottom: '24px',
+            right: '24px',
+            zIndex: 10000,
+            padding: '12px 24px',
+            fontSize: '15px',
+            fontWeight: 800,
+            letterSpacing: '1px',
+            color: '#ffffff',
+            background: 'rgba(0, 210, 255, 0.2)',
+            border: '2px solid rgba(0, 210, 255, 0.6)',
+            borderRadius: '24px',
+            cursor: 'pointer',
+            backdropFilter: 'blur(8px)',
+            boxShadow: '0 0 20px rgba(0, 210, 255, 0.3), inset 0 0 10px rgba(0, 210, 255, 0.2)',
+            transition: 'all 0.2s ease',
+            pointerEvents: 'auto',
+          }}
+          onMouseOver={(e) => {
+            e.currentTarget.style.background = 'rgba(0, 210, 255, 0.4)';
+            e.currentTarget.style.boxShadow = '0 0 30px rgba(0, 210, 255, 0.6), inset 0 0 15px rgba(0, 210, 255, 0.3)';
+          }}
+          onMouseOut={(e) => {
+            e.currentTarget.style.background = 'rgba(0, 210, 255, 0.2)';
+            e.currentTarget.style.boxShadow = '0 0 20px rgba(0, 210, 255, 0.3), inset 0 0 10px rgba(0, 210, 255, 0.2)';
+          }}
+        >
+          視点をリセット
+        </button>
+      )}
+
       <Canvas style={{ width: '100%', height: '100%', background: '#050510' }}>
-        <ResponsiveCamera />
-        <CameraReset isAutoPlayMode={musicState.isAutoPlayMode} cinematicActive={cinematicActive} />
+        <ResponsiveCamera cinematicActive={cinematicActive} />
+        <CameraReset 
+          isAutoPlayMode={musicState.isAutoPlayMode} 
+          cinematicActive={cinematicActive} 
+          controlsRef={controlsRef}
+          resetTrigger={resetTrigger}
+          onResetComplete={handleResetComplete}
+        />
         <DroneCinematic active={cinematicActive} />
 
         {!musicState.isPlaying && !musicState.isTrackingTest && !cinematicActive && (
           <CinematicTitle activeSongUrl={musicState.activeSongUrl} />
         )}
 
-        <StageProduction />
+        {(musicState.isPlaying || musicState.isTrackingTest || cinematicActive) && (
+          <StageProduction />
+        )}
         {(musicState.isPlaying === true || musicState.isTrackingTest === true) && (
           <>
             <JudgeLine />
@@ -486,9 +672,15 @@ export default function Scene() {
         <NoteManager handsDataRef={handsDataRef} />
 
         <OrbitControls 
+          ref={controlsRef}
+          onChange={handleControlsChange}
           enabled={musicState.isAutoPlayMode && !cinematicActive} 
           enableRotate={musicState.isAutoPlayMode && !cinematicActive}
           enableZoom={musicState.isAutoPlayMode && !cinematicActive}
+          enablePan={false}
+          minDistance={10}
+          maxDistance={150}
+          target={[0, -5, -80]}
         />
       </Canvas>
     </div>

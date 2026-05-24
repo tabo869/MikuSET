@@ -2,6 +2,7 @@ export interface SongInfo {
   title: string;
   artist: string;
   url: string;
+  lyricId?: number; // 歌詞情報のリビジョンID（TextAliveデータベースの競合回避用）
 }
 
 export const CONTEST_SONGS: SongInfo[] = [
@@ -9,6 +10,7 @@ export const CONTEST_SONGS: SongInfo[] = [
     title: 'こたえて',
     artist: 'imie',
     url: 'https://piapro.jp/t/6W2N/20251215164617',
+    lyricId: 126519,
   },
   {
     title: 'アフター・ザ・カーテン',

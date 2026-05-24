@@ -218,6 +218,20 @@ export default function PhraseDisplay({ positionRef }: { positionRef: React.RefO
     return () => clearInterval(interval);
   }, [positionRef]);
 
+  // 曲が非再生中、または動画のロード中の時は表示データを即座にクリアする
+  useEffect(() => {
+    if (!state.isPlaying || !state.isVideoReady) {
+      setPastLines([]);
+      setAllChars([]);
+      sourceRef.current = null;
+      displayChunksRef.current = [];
+      activeChunkIdRef.current = null;
+      charOffsetsRef.current = [];
+      globalScrollRef.current = 0;
+      lastTimestampRef.current = null;
+    }
+  }, [state.isPlaying, state.isVideoReady]);
+
   // 過去歌詞スクロール (rAF)
   useEffect(() => {
     let animFrame = 0;

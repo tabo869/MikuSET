@@ -9,7 +9,7 @@ test('E2E-01: AutoPlay through a full song to completion and result screen', asy
 
   await page.goto('/');
 
-  const startButton = page.locator('text="START"');
+  const startButton = page.locator('button', { hasText: /^(START|スタート)$/i });
   await startButton.waitFor({ state: 'visible', timeout: 30000 });
 
   const autoPlayLabel = page.locator('label', { hasText: 'オートプレイ (演出確認用)' });
@@ -34,7 +34,7 @@ test('E2E-01: AutoPlay through a full song to completion and result screen', asy
 test('E2E-02: Manual input via Virtual Keyboard updates the game state', async ({ page }) => {
   await page.goto('/');
 
-  const startButton = page.locator('text="START"');
+  const startButton = page.locator('button', { hasText: /^(START|スタート)$/i });
   await startButton.waitFor({ state: 'visible', timeout: 30000 });
 
   const virtualInputLabel = page.locator('label', { hasText: 'タッチ・キーボード操作モード (カメラOFF)' });
@@ -60,7 +60,7 @@ test('E2E-02: Manual input via Virtual Keyboard updates the game state', async (
 test('E2E-05: Interrupt play with STOP button returns to main menu without results', async ({ page }) => {
   await page.goto('/');
 
-  const startButton = page.locator('text="START"');
+  const startButton = page.locator('button', { hasText: /^(START|スタート)$/i });
   await startButton.waitFor({ state: 'visible', timeout: 30000 });
 
   await startButton.click();
@@ -70,7 +70,7 @@ test('E2E-05: Interrupt play with STOP button returns to main menu without resul
   await page.waitForTimeout(5000);
 
   // Click STOP button
-  const stopButton = page.locator('button', { hasText: 'STOP' });
+  const stopButton = page.locator('button', { hasText: /^(STOP|中断)$/i });
   await stopButton.waitFor({ state: 'visible' });
   await stopButton.click();
 
@@ -88,7 +88,7 @@ test('E2E-05: Interrupt play with STOP button returns to main menu without resul
 test('E2E-06: Changing song dropdown loads new song successfully', async ({ page }) => {
   await page.goto('/');
 
-  const startButton = page.locator('text="START"');
+  const startButton = page.locator('button', { hasText: /^(START|スタート)$/i });
   await startButton.waitFor({ state: 'visible', timeout: 30000 });
 
   const select = page.locator('select');
@@ -120,7 +120,7 @@ test('E2E-03: Extreme resize does not crash the app', async ({ page }) => {
   await page.setViewportSize({ width: 1000, height: 200 });
   await page.waitForTimeout(1000);
 
-  const startButton = page.locator('text="START"');
+  const startButton = page.locator('button', { hasText: /^(START|スタート)$/i });
   await expect(startButton).toBeVisible();
 });
 
@@ -132,7 +132,7 @@ test('E2E-04: Camera permission denied gracefully degrades', async ({ context, p
 
   await page.goto('/');
 
-  const startButton = page.locator('text="START"');
+  const startButton = page.locator('button', { hasText: /^(START|スタート)$/i });
   await startButton.waitFor({ state: 'visible', timeout: 30000 });
 
   const virtualInputLabel = page.locator('label', { hasText: 'タッチ・キーボード操作モード (カメラOFF)' });
@@ -140,4 +140,50 @@ test('E2E-04: Camera permission denied gracefully degrades', async ({ context, p
   
   await virtualInputLabel.check();
   expect(await virtualInputLabel.isChecked()).toBe(true);
+});
+
+// ============================================================================
+// [E2E-07] カメラのドラッグ操作と「視点をリセット」ボタンの検証
+// ============================================================================
+test('E2E-07: AutoPlay manual camera reset and automatic reset on completion', async ({ page }) => {
+  test.setTimeout(120000);
+
+  await page.goto('/');
+
+  const startButton = page.locator('button', { hasText: /^(START|スタート)$/i });
+  await startButton.waitFor({ state: 'visible', timeout: 30000 });
+
+  const autoPlayLabel = page.locator('label', { hasText: 'オートプレイ (演出確認用)' });
+  await autoPlayLabel.check();
+
+  await startButton.click();
+  await startButton.waitFor({ state: 'hidden', timeout: 10000 });
+
+  // Canvas要素の取得
+  const canvas = page.locator('canvas[data-engine^="three.js"]');
+  await canvas.waitFor({ state: 'visible' });
+
+  // 少し再生されるのを待つ
+  await page.waitForTimeout(3000);
+
+  // カメラをドラッグして視点を移動させる
+  const box = await canvas.boundingBox();
+  if (box) {
+    const startX = box.x + box.width / 2;
+    const startY = box.y + box.height / 2;
+    await page.mouse.move(startX, startY);
+    await page.mouse.down();
+    await page.mouse.move(startX + 150, startY + 80, { steps: 10 });
+    await page.mouse.up();
+  }
+
+  // 「視点をリセット」ボタンが表示されることを確認
+  const resetBtn = page.locator('button', { hasText: '視点をリセット' });
+  await expect(resetBtn).toBeVisible({ timeout: 5000 });
+
+  // リセットボタンをクリック
+  await resetBtn.click();
+
+  // ボタンが非表示になることを確認
+  await expect(resetBtn).toBeHidden({ timeout: 5000 });
 });

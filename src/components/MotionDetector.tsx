@@ -46,7 +46,19 @@ const MotionDetector: React.FC<MotionDetectorProps> = ({
     const existing = document.getElementById('swing-test-camera-portal');
     if (existing) setPortalElement(existing);
 
-    return () => window.removeEventListener('mikuset-portal-ready', handlePortalReady);
+    // ポーリングによる要素検索（イベントを逃した場合のバックアップ）
+    const interval = setInterval(() => {
+      const el = document.getElementById('swing-test-camera-portal');
+      if (el) {
+        setPortalElement(el);
+        clearInterval(interval);
+      }
+    }, 500);
+
+    return () => {
+      window.removeEventListener('mikuset-portal-ready', handlePortalReady);
+      clearInterval(interval);
+    };
   }, []);
 
   useEffect(() => {
@@ -78,7 +90,9 @@ const MotionDetector: React.FC<MotionDetectorProps> = ({
     };
 
 
-    initCamera();
+    if (isVisible) {
+      initCamera();
+    }
 
     return () => {
       if (requestRef.current) cancelAnimationFrame(requestRef.current);

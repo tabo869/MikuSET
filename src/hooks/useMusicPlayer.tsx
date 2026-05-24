@@ -23,7 +23,7 @@ import { CONTEST_SONGS } from '../config/songs';
  * ※ TextAlive開発者サイトで発行されたトークン
  *    無効な場合はデモモードで動作する
  */
-const APP_TOKEN = 'nHnMSqOuct1mMKqt';
+const APP_TOKEN = '79CRWtNTCESCDnTe';
 
 /**
  * デフォルト楽曲はコンテスト曲の1曲目
@@ -149,7 +149,7 @@ export function MusicProvider({ children }: MusicProviderProps) {
     statusMessage: 'TextAlive Playerを初期化中...',
     isAutoPlayMode: false,
     isVirtualInputMode: isMobile,
-    language: 'en',
+    language: 'ja',
     showInputLabels: !isMobile,
     isMobile: isMobile,
     hasCamera: true,
@@ -180,7 +180,7 @@ export function MusicProvider({ children }: MusicProviderProps) {
         }
         const devices = await navigator.mediaDevices.enumerateDevices();
         const videoInputs = devices.filter(device => device.kind === 'videoinput');
-        
+
         if (videoInputs.length === 0) {
           console.log('[MusicManager] カメラが見つからないため、モバイル/タッチモード設定を適用します');
           setState(prev => ({
@@ -223,7 +223,7 @@ export function MusicProvider({ children }: MusicProviderProps) {
         for (const node of mutation.addedNodes) {
           if (node instanceof HTMLElement && node.parentNode === document.body) {
             if (node.id !== 'root' && node.id !== 'textalive-media' &&
-                node.tagName !== 'SCRIPT' && node.tagName !== 'LINK' && node.tagName !== 'STYLE') {
+              node.tagName !== 'SCRIPT' && node.tagName !== 'LINK' && node.tagName !== 'STYLE') {
               node.style.cssText = 'position:fixed!important;left:-9999px!important;top:-9999px!important;width:1px!important;height:1px!important;opacity:0!important;pointer-events:none!important;z-index:-9999!important;overflow:hidden!important;';
             }
           }
@@ -242,11 +242,24 @@ export function MusicProvider({ children }: MusicProviderProps) {
       onAppReady(app: IPlayerApp) {
         console.log('[MusicManager] App準備完了');
         setState((prev) => ({ ...prev, statusMessage: '楽曲データを読み込み中...' }));
-        if (!app.managed) player.createFromSongUrl(DEFAULT_SONG_URL);
+        if (!app.managed) {
+          // デフォルト楽曲の読み込み時にも lyricId などの設定オプションを適用
+          const song = CONTEST_SONGS.find((s) => s.url === DEFAULT_SONG_URL);
+          const options = song && song.lyricId ? { video: { lyricId: song.lyricId } } : undefined;
+          player.createFromSongUrl(DEFAULT_SONG_URL, options);
+        }
       },
 
       onVideoReady(video: IVideo) {
+        // デバッグログ: TextAlive から取得した楽曲のメタ情報と歌詞を詳細に出力
         console.log('[MusicManager] 楽曲データ準備完了:', `${video.wordCount} 単語`);
+        console.log('[MusicManager] video URL:', (video as any).url);
+        console.log('[MusicManager] video documentUrl:', (video as any).documentUrl);
+        console.log('[MusicManager] video text:', (video as any).text);
+        if (video.firstWord) {
+          console.log('[MusicManager] 最初のワードのテキスト:', video.firstWord.text);
+        }
+
         (window as any).__mikusetWords = [];
         (window as any).__mikusetChars = [];
         (window as any).__mikusetPhrases = [];
@@ -265,7 +278,7 @@ export function MusicProvider({ children }: MusicProviderProps) {
             charSafety++;
             // コーラス周辺の異常データ（タイミングが10ms以下の壊れたデータ）を広範囲に除去
             const isBrokenInChorus = charPtr.startTime >= 50000 && charPtr.startTime <= 120000 && (charPtr.endTime - charPtr.startTime <= 10);
-            
+
             if (!isBrokenInChorus && charPtr.text && charPtr.text.trim() !== '') {
               allChars.push({ text: charPtr.text, startTime: charPtr.startTime, endTime: charPtr.endTime, parentWord: wordPtr });
             }
@@ -289,7 +302,7 @@ export function MusicProvider({ children }: MusicProviderProps) {
         // 重複を除去（10ms以内の同一文字）
         const seen = new Set<string>();
         allChars = allChars.filter(c => {
-          const key = `${Math.round(c.startTime/10)*10}-${c.text}`;
+          const key = `${Math.round(c.startTime / 10) * 10}-${c.text}`;
           if (seen.has(key)) return false;
           seen.add(key);
           return true;
@@ -297,9 +310,9 @@ export function MusicProvider({ children }: MusicProviderProps) {
         allChars.sort((a, b) => a.startTime - b.startTime);
 
         // --- 3. Char / Word データの構築 ---
-        const finalChars = allChars.map(c => ({ 
+        const finalChars = allChars.map(c => ({
           id: `char-${c.startTime}-${c.text}-${Math.random().toString(36).substr(2, 4)}`,
-          text: c.text, startTime: c.startTime, endTime: c.endTime 
+          text: c.text, startTime: c.startTime, endTime: c.endTime
         }));
         (window as any).__mikusetChars = finalChars;
 
@@ -317,11 +330,11 @@ export function MusicProvider({ children }: MusicProviderProps) {
           const isTooLong = currentWordText.length >= MAX_CHARS_PER_NOTE;
           const isTimeGap = currentWordEnd > 0 && (c.startTime - currentWordEnd > 400);
 
-          const shouldSplit = !currentParent || 
-                              (c.parentWord !== currentParent) || 
-                              isBrokenWord || 
-                              isTimeGap ||
-                              isTooLong;
+          const shouldSplit = !currentParent ||
+            (c.parentWord !== currentParent) ||
+            isBrokenWord ||
+            isTimeGap ||
+            isTooLong;
 
           if (shouldSplit) {
             if (currentWordText) {
@@ -344,7 +357,7 @@ export function MusicProvider({ children }: MusicProviderProps) {
             wordSourceTimes.push(c.startTime);
           }
         });
-        
+
         if (currentWordText) {
           words.push({
             id: `word-${currentWordStart}-${words.length}-${Math.random().toString(36).substr(2, 2)}`,
@@ -399,7 +412,7 @@ export function MusicProvider({ children }: MusicProviderProps) {
         (window as any).__mikusetChoruses = (video as any).choruses ? (video as any).choruses.map((c: any) => ({ startTime: c.startTime, endTime: c.endTime })) : [];
 
         setState((prev) => ({ ...prev, isVideoReady: true, statusMessage: 'タイマー準備中...' }));
-        
+
         // フォールバック: 3秒待っても onTimerReady が呼ばれない場合は強制的に準備完了にする
         setTimeout(() => {
           setState((prev) => {
@@ -410,7 +423,7 @@ export function MusicProvider({ children }: MusicProviderProps) {
             return prev;
           });
         }, 3000);
-        
+
         // ★ 最初から再生するために位置を0にリセット
         positionRef.current = 0;
         maxPositionRef.current = 0;
@@ -423,7 +436,13 @@ export function MusicProvider({ children }: MusicProviderProps) {
         positionRef.current = position;
         if (position > maxPositionRef.current) maxPositionRef.current = position;
       },
-      onPlay() { setState((prev) => ({ ...prev, isPlaying: true })); },
+      onPlay() {
+        setState((prev) => ({ ...prev, isPlaying: true }));
+        // 最初の再生開始時（開始から1秒以内）に強制的に0秒へシークして前奏カットを防止
+        if (positionRef.current < 1000) {
+          playerRef.current?.requestMediaSeek(0);
+        }
+      },
       onPause() { setState((prev) => ({ ...prev, isPlaying: false })); },
       onStop() { setState((prev) => ({ ...prev, isPlaying: false })); positionRef.current = 0; },
     });
@@ -441,9 +460,6 @@ export function MusicProvider({ children }: MusicProviderProps) {
   const play = useCallback((forceStart = false) => {
     const player = playerRef.current;
     if (!player) return;
-
-    const NOTE_LEAD_MS = 3000;
-    const firstWordTime = (window as any).__mikusetFirstWordTime as number | undefined;
 
     const isFinished = player.video && positionRef.current >= player.video.endTime - 500;
     const shouldRestart = forceStart === true || positionRef.current === 0 || isFinished;
@@ -465,9 +481,26 @@ export function MusicProvider({ children }: MusicProviderProps) {
     playerRef.current?.requestPause();
   }, []);
 
+  const clearGlobalMusicData = useCallback(() => {
+    const win = window as any;
+    win.__mikusetWords = [];
+    win.__mikusetChars = [];
+    win.__mikusetPhrases = [];
+    win.__mikusetChoruses = [];
+    win.__mikusetFirstWordTime = 0;
+    win.__mikusetLastWordTime = 0;
+    win.__mikusetVideoDuration = 0;
+    if (win.__mikusetHitWordIds) {
+      win.__mikusetHitWordIds.clear();
+    }
+  }, []);
+
   const stop = useCallback(() => {
     const player = playerRef.current;
     if (!player) return;
+
+    clearGlobalMusicData();
+
     // requestStop() は TextAlive の内部分析エンジンを完全停止させてしまい、
     // 再度 requestPlay() しても onTimeUpdate が発火しなくなる。
     // そのため requestPause + requestMediaSeek(0) で「一時停止＋先頭に戻す」方式にする。
@@ -478,7 +511,7 @@ export function MusicProvider({ children }: MusicProviderProps) {
     setState((prev) => ({ ...prev, isPlaying: false, isTrackingTest: false, calibrationStep: 'NONE' }));
     positionRef.current = 0;
     maxPositionRef.current = 0;
-  }, []);
+  }, [clearGlobalMusicData]);
 
   const togglePlayPause = useCallback(() => {
     const p = playerRef.current;
@@ -495,10 +528,10 @@ export function MusicProvider({ children }: MusicProviderProps) {
     setState((prev) => {
       // テストをOFFにする場合はキャリブレーションもキャンセルする
       const nextTest = !prev.isTrackingTest;
-      return { 
-        ...prev, 
-        isTrackingTest: nextTest, 
-        calibrationStep: nextTest ? prev.calibrationStep : 'NONE' 
+      return {
+        ...prev,
+        isTrackingTest: nextTest,
+        calibrationStep: nextTest ? prev.calibrationStep : 'NONE'
       };
     });
   }, []);
@@ -514,7 +547,9 @@ export function MusicProvider({ children }: MusicProviderProps) {
 
   const selectSong = useCallback((url: string) => {
     if (!playerRef.current) return;
-    
+
+    clearGlobalMusicData();
+
     setState((prev) => ({
       ...prev,
       activeSongUrl: url,
@@ -522,10 +557,12 @@ export function MusicProvider({ children }: MusicProviderProps) {
       isVideoReady: false,
       statusMessage: '楽曲データを読み込み中...',
     }));
-    
+
     positionRef.current = 0; // 曲の切り替え時に再生位置を明示的にリセット
-    playerRef.current.createFromSongUrl(url);
-  }, []);
+    const song = CONTEST_SONGS.find((s) => s.url === url);
+    const options = song && song.lyricId ? { video: { lyricId: song.lyricId } } : undefined;
+    playerRef.current.createFromSongUrl(url, options);
+  }, [clearGlobalMusicData]);
 
   const toggleAutoPlay = useCallback(() => {
     setState((prev) => ({
