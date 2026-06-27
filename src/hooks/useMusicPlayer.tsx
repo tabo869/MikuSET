@@ -87,6 +87,7 @@ export interface MusicPlayerActions {
   play: (forceStart?: boolean) => void;
   pause: () => void;
   stop: () => void;
+  seek: (ms: number) => void;
   togglePlayPause: () => void;
   toggleTrackingTest: () => void;
   setCalibrationStep: (step: CalibrationStep) => void;
@@ -487,6 +488,11 @@ export function MusicProvider({ children }: MusicProviderProps) {
     playerRef.current?.requestPause();
   }, []);
 
+  const seek = useCallback((ms: number) => {
+    playerRef.current?.requestMediaSeek(ms);
+    positionRef.current = ms;
+  }, []);
+
   const clearGlobalMusicData = useCallback(() => {
     const win = window as any;
     win.__mikusetWords = [];
@@ -635,8 +641,8 @@ export function MusicProvider({ children }: MusicProviderProps) {
 
   // actions は固定（useCallback済み）なので一度だけ生成
   const actions = useMemo<MusicPlayerActions>(
-    () => ({ play, pause, stop, togglePlayPause, toggleTrackingTest, setCalibrationStep, setCalibrationData, selectSong, toggleAutoPlay, toggleMagicalGuestMode, toggleVirtualInputMode, setLanguage, toggleInputLabels, toggleHideScrollingLyrics }),
-    [play, pause, stop, togglePlayPause, toggleTrackingTest, setCalibrationStep, setCalibrationData, selectSong, toggleAutoPlay, toggleMagicalGuestMode, toggleVirtualInputMode, setLanguage, toggleInputLabels, toggleHideScrollingLyrics]
+    () => ({ play, pause, stop, seek, togglePlayPause, toggleTrackingTest, setCalibrationStep, setCalibrationData, selectSong, toggleAutoPlay, toggleMagicalGuestMode, toggleVirtualInputMode, setLanguage, toggleInputLabels, toggleHideScrollingLyrics }),
+    [play, pause, stop, seek, togglePlayPause, toggleTrackingTest, setCalibrationStep, setCalibrationData, selectSong, toggleAutoPlay, toggleMagicalGuestMode, toggleVirtualInputMode, setLanguage, toggleInputLabels, toggleHideScrollingLyrics]
   );
 
   // contextValue は state が変わった時のみ再生成

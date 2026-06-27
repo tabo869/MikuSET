@@ -197,6 +197,12 @@ export default function MusicManager() {
   useEffect(() => {
     if (countdown === null) return;
     if (countdown === 0) {
+      // カウントダウン完了の瞬間（GO!）に、最初の歌詞の位置にシーク同期する
+      const firstNoteTime = (window as any).__mikusetFirstWordTime || 0;
+      if (firstNoteTime < 3000) {
+        actions.seek(firstNoteTime);
+      }
+
       // 'GO!' 表示後にカウントダウン表示を消す
       const timer = setTimeout(() => {
         setCountdown(null);
@@ -207,7 +213,7 @@ export default function MusicManager() {
     // 1秒ごとにカウントダウンを進める
     const timer = setTimeout(() => setCountdown((c) => (c as number) - 1), 1000);
     return () => clearTimeout(timer);
-  }, [countdown, gameActions]);
+  }, [countdown, gameActions, actions]);
 
   /** 再生開始ハンドラ */
   const handleStart = async () => {
@@ -225,12 +231,6 @@ export default function MusicManager() {
       }
     } catch (e) {}
 
-    // ブラウザのオートプレイ制限（AudioContext無効化）を回避するため、一瞬再生して即座に一時停止する
-    actions.play(true);
-    setTimeout(() => {
-      actions.pause();
-    }, 50);
-
     isUserStopped.current = false;
     gameActions.reset();
     positionRef.current = 0;
@@ -245,11 +245,20 @@ export default function MusicManager() {
     const countdownTotalTime = 3000; // 3秒間
     const playDelay = Math.max(0, countdownTotalTime - firstNoteTime);
 
-    // 指定されたディレイ後に曲を本格再生する
-    playTimerRef.current = setTimeout(() => {
+    if (playDelay > 0) {
+      // 歌い出しが早い曲：まず同期再生でアンロックして、一時停止してロードを待つ
       actions.play(true);
-      playTimerRef.current = null;
-    }, playDelay);
+      actions.pause();
+
+      // 指定されたディレイ後に曲を本格再生する（すでに有効化されているため、非同期setTimeoutからでも100%確実に再生できます）
+      playTimerRef.current = setTimeout(() => {
+        actions.play(false); // forceStart = false で途中から流す
+        playTimerRef.current = null;
+      }, playDelay);
+    } else {
+      // イントロが十分長い曲：即座に本格再生開始
+      actions.play(true);
+    }
   };
 
   /** 中断（ストップ）ハンドラ */
