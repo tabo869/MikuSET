@@ -229,6 +229,12 @@ export default function MusicManager() {
     gameActions.reset();
     maxPositionRef.current = 0;
 
+    // ブラウザのオートプレイ制限を100%回避するため、同期的な操作フック内でダミーの無音オーディオを再生して完全にアンロックする
+    try {
+      const dummyAudio = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAAA');
+      dummyAudio.play().catch(() => {});
+    } catch (e) {}
+
     // カウントダウンを開始する (3 -> 2 -> 1 -> GO!)
     setCountdown(3);
     gameActions.setIsCountdownActive(true);
@@ -244,19 +250,10 @@ export default function MusicManager() {
     positionRef.current = -playDelay;
 
     if (playDelay > 0) {
-      // 歌い出しが早い曲：まず同期再生でブラウザ音声を有効化し、100ms遅らせて確実に一時停止させてロードを待つ
-      actions.play(true);
-      setTimeout(() => {
-        // 中断されていない場合のみ一時停止を実行
-        if (!isUserStopped.current) {
-          actions.pause();
-        }
-      }, 100);
-
-      // 指定されたディレイ後に曲を本格再生する（すでに有効化されているため、非同期setTimeoutからでも100%確実に再生できます）
+      // 歌い出しが早い曲：指定されたディレイ後に曲を本格再生する（ダミーオーディオにより制限は解除されているため、非同期setTimeoutからでも100%確実に再生できます）
       playTimerRef.current = setTimeout(() => {
         if (!isUserStopped.current) {
-          actions.play(false); // forceStart = false で0秒から再生開始
+          actions.play(true); // 0秒から物理再生開始（一時停止を一切挟まないため競合は発生しません）
         }
         playTimerRef.current = null;
       }, playDelay);
