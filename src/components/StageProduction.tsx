@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { useGameState } from '../hooks/useGameState';
 import { useMusicPlayer } from '../hooks/useMusicPlayer';
 import { CONTEST_SONGS } from '../config/songs';
+import { getRankingByDifficulty } from '../utils/ranking';
 
 // ---------------------------------------------------------------------------
 // 共通レベル計算関数 (useFrame内で使用)
@@ -495,30 +496,42 @@ function AudiencePenlights({ isDroneActive }: { isDroneActive: boolean }) {
 // ---------------------------------------------------------------------------
 // VirtualStage: 奥に表示されるライブステージとバーチャルシンガー
 // ---------------------------------------------------------------------------
-function VirtualStage() {
-  const { stateRef } = useGameState();
+function VirtualStage({ isDroneActive }: { isDroneActive: boolean }) {
   const { positionRef, state: musicState } = useMusicPlayer();
-  const choruses = (window as unknown as Record<string, unknown>).__mikusetChoruses as { startTime: number; endTime: number }[] | undefined;
   
   const stageRef = useRef<THREE.Group>(null!);
   const singerAuraRef = useRef<THREE.MeshBasicMaterial>(null!);
   const singerSpotRef = useRef<THREE.PointLight>(null!);
   const singerCoreRef = useRef<THREE.MeshBasicMaterial>(null!);
-  const baseWireRef = useRef<THREE.MeshStandardMaterial>(null!);
-  const screenWireRef = useRef<THREE.MeshStandardMaterial>(null!);
   const charsIndexRef = useRef(0);
   const lastActiveIdxRef = useRef(-1);
   const vocalPulseRef = useRef(0);
-  const flashLightLeftRef = useRef<THREE.MeshBasicMaterial>(null!);
-  const flashLightRightRef = useRef<THREE.MeshBasicMaterial>(null!);
+
+  const activeSong = useMemo(() => {
+    return CONTEST_SONGS.find((s) => s.url === musicState.activeSongUrl);
+  }, [musicState.activeSongUrl]);
 
   const songIndex = useMemo(() => {
     return CONTEST_SONGS.findIndex((s) => s.url === musicState.activeSongUrl);
   }, [musicState.activeSongUrl]);
 
-  const lyricTextRef = useRef<any>(null!);
+  // ハイスコア情報を取得
+  const easyHighScore = useMemo(() => {
+    const scores = getRankingByDifficulty(musicState.activeSongUrl, 'Easy');
+    return scores[0]?.score ?? 0;
+  }, [musicState.activeSongUrl]);
 
-  useFrame((state, delta) => {
+  const normalHighScore = useMemo(() => {
+    const scores = getRankingByDifficulty(musicState.activeSongUrl, 'Normal');
+    return scores[0]?.score ?? 0;
+  }, [musicState.activeSongUrl]);
+
+  const hardHighScore = useMemo(() => {
+    const scores = getRankingByDifficulty(musicState.activeSongUrl, 'Hard');
+    return scores[0]?.score ?? 0;
+  }, [musicState.activeSongUrl]);
+
+  useFrame((_, delta) => {
     if (!stageRef.current) return;
     const now = positionRef.current;
     
@@ -588,6 +601,55 @@ function VirtualStage() {
         <planeGeometry args={[120, 40]} />
         <meshBasicMaterial color="#000000" transparent opacity={0.4} />
       </mesh>
+      
+      {/* ドローン演出時のスクリーン表示 (タイトル & ハイスコア) */}
+      {isDroneActive && (
+        <group position={[0, 15, -14.8]}>
+          {/* メインタイトルロゴ */}
+          <Text
+            fontSize={6.5}
+            color="#00ffcc"
+            font="/fonts/Outfit-Bold.ttf"
+            anchorX="center"
+            anchorY="middle"
+            position={[0, 8, 0]}
+            maxWidth={110}
+            textAlign="center"
+          >
+            MikuSET: BEAT BATON
+          </Text>
+
+          {/* 選択中の曲情報 */}
+          {activeSong && (
+            <Text
+              fontSize={3.0}
+              color="#ffffff"
+              anchorX="center"
+              anchorY="middle"
+              position={[0, 2, 0]}
+              maxWidth={110}
+              textAlign="center"
+            >
+              {`NOW SELECTING: ${activeSong.title} / ${activeSong.artist}`}
+            </Text>
+          )}
+
+          {/* 各難易度のハイスコア */}
+          <Text
+            fontSize={2.5}
+            color="#aaddff"
+            anchorX="center"
+            anchorY="middle"
+            position={[0, -5, 0]}
+            maxWidth={110}
+            textAlign="center"
+            lineHeight={1.5}
+          >
+            {`--- HIGH SCORES ---\nEASY  :  ${easyHighScore > 0 ? easyHighScore.toLocaleString() : '---'}\nNORMAL  :  ${normalHighScore > 0 ? normalHighScore.toLocaleString() : '---'}\nHARD  :  ${hardHighScore > 0 ? hardHighScore.toLocaleString() : '---'}`}
+          </Text>
+        </group>
+      )}
+
       <mesh position={[0, 15, -15]}>
         <boxGeometry args={[122, 42, 1]} />
         <meshStandardMaterial color="#000000" emissive="#220000" emissiveIntensity={1.0} wireframe />
@@ -678,7 +740,7 @@ export default memo(function StageProduction({ isDroneActive = false }: StagePro
       <DynamicLights isDroneActive={isDroneActive} />
       <CyberBackground isDroneActive={isDroneActive} />
       <AudiencePenlights isDroneActive={isDroneActive} />
-      <VirtualStage />
+      <VirtualStage isDroneActive={isDroneActive} />
       <StageSpotlights isDroneActive={isDroneActive} />
       
       {/* Level 8以上（極限状態/サビ中）かつドローン演出中でない場合のみ強烈な画面揺れ */}
