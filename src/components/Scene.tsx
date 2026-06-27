@@ -302,11 +302,11 @@ function DroneCinematic({ active }: { active: boolean }) {
 
   const curve = useMemo(() => {
     return new THREE.CatmullRomCurve3([
-      new THREE.Vector3(0, 3, -86),       // スタート：ボーカル背後上部（Zを -92 から -86 に変更して背面スクリーンとの干渉を回避）
+      new THREE.Vector3(0, 3, -86),       // スタート：ボーカル背後上部
       new THREE.Vector3(25, 1, -80),      // ステージ右手へ回り込む
-      new THREE.Vector3(45, 6, -45),      // 観客席右手奥
-      new THREE.Vector3(0, 10, -20),      // 会場中央上空
-      new THREE.Vector3(-45, 6, -45),     // 観客席左手奥
+      new THREE.Vector3(30, 4, -30),      // 右客席手前
+      new THREE.Vector3(0, 0, 8),         // ゲームのスタート（プレイ）位置！(Z=8, Y=0)
+      new THREE.Vector3(-30, 4, -30),     // 左客席手前
       new THREE.Vector3(-25, 1, -80),     // ステージ左手へ回り込む
     ], true);
   }, []);
