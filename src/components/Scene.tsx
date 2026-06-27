@@ -301,18 +301,16 @@ function DroneCinematic({ active }: { active: boolean }) {
   const prevActive = useRef(false);
 
   const curve = useMemo(() => {
-    // ボーカル（Z = -80, Y = 1.5）の頭上・周囲（高さ 6〜9m）をダイナミックに旋回する円状の軌道
     return new THREE.CatmullRomCurve3([
-      new THREE.Vector3(0, 9, -96),       // ボーカル背後上空 (Z=-96, Y=9)
-      new THREE.Vector3(22, 7, -80),      // ボーカル右斜め上空 (Z=-80, Y=7)
-      new THREE.Vector3(15, 6, -64),      // ボーカルの右前方上空 (Z=-64, Y=6)
-      new THREE.Vector3(0, 8, -58),       // ボーカル正面手前上空 (Z=-58, Y=8)
-      new THREE.Vector3(-15, 6, -64),     // ボーカルの左前方上空 (Z=-64, Y=6)
-      new THREE.Vector3(-22, 7, -80),     // ボーカル左斜め上空 (Z=-80, Y=7)
+      new THREE.Vector3(0, 3, -86),       // スタート：ボーカル背後上部（Zを -92 から -86 に変更して背面スクリーンとの干渉を回避）
+      new THREE.Vector3(25, 1, -80),      // ステージ右手へ回り込む
+      new THREE.Vector3(45, 6, -45),      // 観客席右手奥
+      new THREE.Vector3(0, 10, -20),      // 会場中央上空
+      new THREE.Vector3(-45, 6, -45),     // 観客席左手奥
+      new THREE.Vector3(-25, 1, -80),     // ステージ左手へ回り込む
     ], true);
   }, []);
 
-  const targetLookAt = useMemo(() => new THREE.Vector3(0, -3, 20), []);
   const currentLookAt = useRef(new THREE.Vector3());
   
   useEffect(() => {
@@ -350,6 +348,12 @@ function DroneCinematic({ active }: { active: boolean }) {
 
     const elapsed = state.clock.elapsedTime - startTimeRef.current;
 
+    // ボーカル注視と会場注視のブレンド基準（Z座標ベース）
+    // Zが -75 より奥（ボーカル上空）なら会場客席向き (Z=20)
+    // Zが -60 より手前（会場側）ならボーカル向き (Z=-80)
+    const vocalLook = new THREE.Vector3(0, -5, -80);
+    const venueLook = new THREE.Vector3(0, -3, 20);
+
     if (elapsed < INTRO_DURATION) {
       // 1. アプローチ軌道（イントロフェーズ）
       const u = elapsed / INTRO_DURATION;
@@ -360,23 +364,17 @@ function DroneCinematic({ active }: { active: boolean }) {
       const pos = new THREE.Vector3().lerpVectors(startPos, endPos, u);
       pos.y += PEAK_HEIGHT * 4 * u * (1 - u);
 
-      // 注視点：カメラがボーカル上空を通過するピーク付近（uが0.3〜0.85の間）では、下を向かずに会場方向（Zのプラス側）を向かせる
-      const lookAtPoint = new THREE.Vector3();
-      if (u < 0.3) {
-        const startLook = new THREE.Vector3(0, 0, 0);
-        const midLook = new THREE.Vector3(0, -5, -80);
-        lookAtPoint.lerpVectors(startLook, midLook, u / 0.3);
-      } else if (u >= 0.3 && u < 0.85) {
-        const progress = (u - 0.3) / 0.55;
-        const midLook = new THREE.Vector3(0, -5, -80);
-        const venueLook = new THREE.Vector3(0, -3, 30); // Z=30 (会場・客席方向)
-        lookAtPoint.lerpVectors(midLook, venueLook, Math.sin(progress * Math.PI));
-      } else {
-        const venueLook = new THREE.Vector3(0, -5, -80); // 最終的にボーカル位置へ着地
-        lookAtPoint.copy(venueLook);
-      }
-
       camera.position.copy(pos);
+
+      // Z座標に基づいた注視ターゲットの決定
+      const z = camera.position.z;
+      const t_lerp = THREE.MathUtils.clamp((z - (-75)) / 15, 0, 1);
+      const targetPosLook = new THREE.Vector3().lerpVectors(venueLook, vocalLook, t_lerp);
+
+      // スタート時 (u=0) は (0,0,0) を向いているため、徐々にブレンドターゲットへ補間
+      const startLook = new THREE.Vector3(0, 0, 0);
+      const lookAtPoint = new THREE.Vector3().lerpVectors(startLook, targetPosLook, Math.min(u * 2.0, 1.0));
+
       currentLookAt.current.copy(lookAtPoint);
       camera.lookAt(currentLookAt.current);
     } else {
@@ -388,8 +386,12 @@ function DroneCinematic({ active }: { active: boolean }) {
       // 前フレームの位置から滑らかに補間
       camera.position.lerp(pos, 0.08);
 
-      // 注視点は移動方向ではなく、常に客席ターゲット (Z=20) を向き続けるように固定！
-      currentLookAt.current.lerp(targetLookAt, 0.1);
+      // Z座標に基づいた注視ターゲットの決定
+      const z = camera.position.z;
+      const t_lerp = THREE.MathUtils.clamp((z - (-75)) / 15, 0, 1);
+      const targetPosLook = new THREE.Vector3().lerpVectors(venueLook, vocalLook, t_lerp);
+
+      currentLookAt.current.lerp(targetPosLook, 0.1);
       camera.lookAt(currentLookAt.current);
     }
   });
