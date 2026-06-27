@@ -607,7 +607,7 @@ function VirtualStage({ isDroneActive }: { isDroneActive: boolean }) {
         <group position={[0, 15, -14.8]}>
           {/* メインタイトルロゴ (中央上部) */}
           <Text
-            fontSize={7.0}
+            fontSize={8.5}
             color="#00ffcc"
             font="/NotoSansJP-Medium.ttf"
             anchorX="center"
@@ -616,7 +616,7 @@ function VirtualStage({ isDroneActive }: { isDroneActive: boolean }) {
             maxWidth={110}
             textAlign="center"
           >
-            MikuSET: BEAT BATON
+            S★LIVE
           </Text>
 
           {/* 選択中の曲情報 (左側) */}

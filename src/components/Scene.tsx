@@ -762,7 +762,7 @@ export default function Scene() {
           />
           <DroneCinematic active={isDroneActive} />
 
-          {!musicState.isPlaying && !musicState.isTrackingTest && !isCountdownActive && (
+          {!musicState.isPlaying && !musicState.isTrackingTest && !isCountdownActive && !isDroneActive && (
             <CinematicTitle activeSongUrl={musicState.activeSongUrl} />
           )}
 
