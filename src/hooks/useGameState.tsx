@@ -203,7 +203,7 @@ export function GameStateProvider({ children }: GameStateProviderProps) {
 
 
   const getSnapshot = useCallback(() => {
-    return { ...stateRef.current };
+    return stateRef.current;
   }, []);
 
   const contextValue: GameStateContextValue = {
