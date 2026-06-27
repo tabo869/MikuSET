@@ -376,8 +376,9 @@ export function MusicProvider({ children }: MusicProviderProps) {
         }
         console.log(`[MusicManager] 最終Word数: ${words.length} (MaxChars: ${MAX_CHARS_PER_NOTE})`);
 
+        const validFirstWord = words.find(w => w.text && w.text.trim() !== "");
         (window as any).__mikusetWords = words;
-        (window as any).__mikusetFirstWordTime = words.length > 0 ? words[0].startTime : 0;
+        (window as any).__mikusetFirstWordTime = validFirstWord ? validFirstWord.startTime : (words.length > 0 ? words[0].startTime : 0);
         (window as any).__mikusetLastWordTime = words.length > 0 ? words[words.length - 1].endTime : 0;
         (window as any).__mikusetVideoDuration = video.duration;
 
