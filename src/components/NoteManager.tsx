@@ -57,29 +57,31 @@ function mergeUnits(
 
 // 左手（鏡合わせ）の指揮パターン (3x3 グリッド座標に完全準拠)
 // X: Left=-3.5, Center=-2.0, Right=-0.5
-// Y: Top=2.0, Middle=0.0, Bottom=-2.0
+const Y_TOP = 2.8 - (5.6 / 6); // 1.8666...
+const Y_BOT = -Y_TOP;
+
 const CONDUCTOR_PATTERN_LEFT: { x: number; y: number }[] = [
-  { x: -2.0, y: -2.0 }, // Bottom Center
-  { x: -3.5, y:  0.0 }, // Middle Left
-  { x: -2.0, y:  2.0 }, // Top Center
-  { x: -0.5, y:  0.0 }, // Middle Right
-  { x: -3.5, y:  2.0 }, // Top Left
-  { x: -0.5, y: -2.0 }, // Bottom Right
-  { x: -0.5, y:  2.0 }, // Top Right
-  { x: -3.5, y: -2.0 }, // Bottom Left
-  { x: -2.0, y:  0.0 }, // Middle Center
+  { x: -2.4, y: Y_BOT }, // Bottom Center (C)
+  { x: -4.0, y:  0.0 }, // Middle Left (S)
+  { x: -2.4, y: Y_TOP }, // Top Center (E)
+  { x: -0.8, y:  0.0 }, // Middle Right (F)
+  { x: -4.0, y: Y_TOP }, // Top Left (W)
+  { x: -0.8, y: Y_BOT }, // Bottom Right (V)
+  { x: -0.8, y: Y_TOP }, // Top Right (R)
+  { x: -4.0, y: Y_BOT }, // Bottom Left (X)
+  { x: -2.4, y:  0.0 }, // Middle Center (D)
 ];
 
 const CONDUCTOR_PATTERN_RIGHT: { x: number; y: number }[] = [
-  { x:  2.0, y: -2.0 }, // Bottom Center
-  { x:  0.5, y:  0.0 }, // Middle Left
-  { x:  2.0, y:  2.0 }, // Top Center
-  { x:  3.5, y:  0.0 }, // Middle Right
-  { x:  3.5, y:  2.0 }, // Top Right
-  { x:  0.5, y: -2.0 }, // Bottom Left
-  { x:  0.5, y:  2.0 }, // Top Left
-  { x:  3.5, y: -2.0 }, // Bottom Right
-  { x:  2.0, y:  0.0 }, // Middle Center
+  { x:  2.4, y: Y_BOT }, // Bottom Center (<)
+  { x:  0.8, y:  0.0 }, // Middle Left (J)
+  { x:  2.4, y: Y_TOP }, // Top Center (I)
+  { x:  4.0, y:  0.0 }, // Middle Right (L)
+  { x:  4.0, y: Y_TOP }, // Top Right (O)
+  { x:  0.8, y: Y_BOT }, // Bottom Left (M)
+  { x:  0.8, y: Y_TOP }, // Top Left (U)
+  { x:  4.0, y: Y_BOT }, // Bottom Right (>)
+  { x:  2.4, y:  0.0 }, // Middle Center (K)
 ];
 
 function getStarPoints(outerRadius = 0.4, innerRadius = 0.15) {

@@ -19,6 +19,7 @@ const FaceTracker: React.FC<FaceTrackerProps> = ({ isVisible }) => {
   // 表情スコアの表示用ステート
   const [smileScore, setSmileScore] = useState(0);
   const [jawOpenScore, setJawOpenScore] = useState(0);
+  const [blinkScore, setBlinkScore] = useState(0);
   const [currentRotationDeg, setCurrentRotationDeg] = useState(0);
 
   // 最後にトリガーした時間（クールダウン制御用）
@@ -38,6 +39,7 @@ const FaceTracker: React.FC<FaceTrackerProps> = ({ isVisible }) => {
   // 表情判定のノイズディバウンス用カウンター
   const activeSmileFramesRef = useRef(0);
   const activeJawOpenFramesRef = useRef(0);
+  const activeBlinkFramesRef = useRef(0);
 
   // 表情判定の閾値（0.58に引き上げてノイズを低減）
   const TRIGGER_THRESHOLD = 0.58;
@@ -244,11 +246,15 @@ const FaceTracker: React.FC<FaceTrackerProps> = ({ isVisible }) => {
           const smileLeft = shapes.find(s => s.categoryName === 'mouthSmileLeft')?.score || 0;
           const smileRight = shapes.find(s => s.categoryName === 'mouthSmileRight')?.score || 0;
           const jawOpen = shapes.find(s => s.categoryName === 'jawOpen')?.score || 0;
+          const blinkLeft = shapes.find(s => s.categoryName === 'eyeBlinkLeft')?.score || 0;
+          const blinkRight = shapes.find(s => s.categoryName === 'eyeBlinkRight')?.score || 0;
 
           const smile = (smileLeft + smileRight) / 2;
+          const blink = (blinkLeft + blinkRight) / 2;
 
           setSmileScore(smile);
           setJawOpenScore(jawOpen);
+          setBlinkScore(blink);
 
           // 1. 笑顔の判定（TRIGGER_THRESHOLD以上の状態がREQUIRED_FRAMES連続した場合のみトリガー）
           if (smile > TRIGGER_THRESHOLD) {
@@ -257,6 +263,7 @@ const FaceTracker: React.FC<FaceTrackerProps> = ({ isVisible }) => {
               lastTriggerTimeRef.current = now;
               activeSmileFramesRef.current = 0;
               activeJawOpenFramesRef.current = 0;
+              activeBlinkFramesRef.current = 0;
               audioPlayer.triggerQuantized('sparkle');
             }
           } else {
@@ -270,10 +277,25 @@ const FaceTracker: React.FC<FaceTrackerProps> = ({ isVisible }) => {
               lastTriggerTimeRef.current = now;
               activeSmileFramesRef.current = 0;
               activeJawOpenFramesRef.current = 0;
-              audioPlayer.triggerQuantized('tambourine');
+              activeBlinkFramesRef.current = 0;
+              audioPlayer.triggerQuantized('pop');
             }
           } else {
             activeJawOpenFramesRef.current = 0;
+          }
+
+          // 3. まばたきの判定
+          if (blink > TRIGGER_THRESHOLD) {
+            activeBlinkFramesRef.current += 1;
+            if (activeBlinkFramesRef.current >= REQUIRED_FRAMES && now - lastTriggerTimeRef.current > COOLDOWN_MS) {
+              lastTriggerTimeRef.current = now;
+              activeSmileFramesRef.current = 0;
+              activeJawOpenFramesRef.current = 0;
+              activeBlinkFramesRef.current = 0;
+              audioPlayer.triggerQuantized('blink');
+            }
+          } else {
+            activeBlinkFramesRef.current = 0;
           }
         }
       } else {
@@ -281,8 +303,10 @@ const FaceTracker: React.FC<FaceTrackerProps> = ({ isVisible }) => {
         consecutiveMissFramesRef.current += 1;
         setSmileScore(0);
         setJawOpenScore(0);
+        setBlinkScore(0);
         activeSmileFramesRef.current = 0;
         activeJawOpenFramesRef.current = 0;
+        activeBlinkFramesRef.current = 0;
 
         // 30フレーム連続で見失った場合、スキャン（異なる角度を順次試す）を開始
         if (consecutiveMissFramesRef.current > 30) {
@@ -444,6 +468,23 @@ const FaceTracker: React.FC<FaceTrackerProps> = ({ isVisible }) => {
           </div>
           <span style={{ width: '25px', fontSize: '10px', textAlign: 'right', fontFamily: 'monospace' }}>
             {Math.round(jawOpenScore * 100)}
+          </span>
+        </div>
+
+        {/* まばたきスコアバー */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span style={{ width: '40px', fontSize: '10px', color: '#39ff14', fontWeight: 'bold' }}>まばたき</span>
+          <div style={{ flex: 1, height: '6px', background: 'rgba(255,255,255,0.15)', borderRadius: '3px', overflow: 'hidden' }}>
+            <div style={{
+              width: `${Math.min(100, blinkScore * 100)}%`,
+              height: '100%',
+              background: blinkScore > 0.5 ? '#2ebd10' : '#8cff75',
+              boxShadow: blinkScore > 0.5 ? '0 0 10px #39ff14' : 'none',
+              transition: 'width 0.1s ease'
+            }} />
+          </div>
+          <span style={{ width: '25px', fontSize: '10px', textAlign: 'right', fontFamily: 'monospace' }}>
+            {Math.round(blinkScore * 100)}
           </span>
         </div>
       </div>

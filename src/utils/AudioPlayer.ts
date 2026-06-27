@@ -110,9 +110,72 @@ class AudioPlayer {
   }
 
   /**
+   * ポップ音の生成とスケジュール再生
+   * 口開きアクション用：アタックがはっきりした「ポン！」というシンセ音
+   */
+  public playPop(when: number) {
+    const ctx = this.initCtx();
+    const osc = ctx.createOscillator();
+    const gainNode = ctx.createGain();
+
+    osc.type = 'sine';
+    
+    // アタックの立ち上がり周波数800Hzから150Hzへの急速な指数スイープ
+    osc.frequency.setValueAtTime(800, when);
+    osc.frequency.exponentialRampToValueAtTime(150, when + 0.08);
+
+    // アタックは即座に最大音量になり、100msで急激に減衰
+    gainNode.gain.setValueAtTime(0.28, when);
+    gainNode.gain.exponentialRampToValueAtTime(0.001, when + 0.1);
+
+    osc.connect(gainNode);
+    gainNode.connect(ctx.destination);
+
+    osc.start(when);
+    osc.stop(when + 0.12);
+  }
+
+  /**
+   * まばたき音の生成とスケジュール再生
+   * まばたきアクション用：高音で繊細な「チーン」という短い鈴・金属風シンセ音
+   */
+  public playBlink(when: number) {
+    const ctx = this.initCtx();
+    
+    // 主音となる高域サイン波
+    const osc1 = ctx.createOscillator();
+    const gain1 = ctx.createGain();
+    osc1.type = 'sine';
+    osc1.frequency.setValueAtTime(3200, when);
+    osc1.frequency.exponentialRampToValueAtTime(1600, when + 0.05);
+
+    gain1.gain.setValueAtTime(0.12, when);
+    gain1.gain.exponentialRampToValueAtTime(0.001, when + 0.06);
+
+    osc1.connect(gain1);
+    gain1.connect(ctx.destination);
+    osc1.start(when);
+    osc1.stop(when + 0.08);
+
+    // 金属的な倍音成分
+    const osc2 = ctx.createOscillator();
+    const gain2 = ctx.createGain();
+    osc2.type = 'sine';
+    osc2.frequency.setValueAtTime(4800, when);
+
+    gain2.gain.setValueAtTime(0.06, when);
+    gain2.gain.exponentialRampToValueAtTime(0.001, when + 0.04);
+
+    osc2.connect(gain2);
+    gain2.connect(ctx.destination);
+    osc2.start(when);
+    osc2.stop(when + 0.06);
+  }
+
+  /**
    * BPMクオンタイズを計算し、適切なタイミングでSEを再生する
    */
-  public triggerQuantized(type: 'sparkle' | 'tambourine') {
+  public triggerQuantized(type: 'sparkle' | 'tambourine' | 'pop' | 'blink') {
     const win = window as any;
     const player = win.__mikusetPlayer as Player;
     const currentSongPos = win.__mikusetCurrentPosition || 0;
@@ -157,6 +220,10 @@ class AudioPlayer {
     // SE再生を予約
     if (type === 'sparkle') {
       this.playSparkle(targetAudioTime);
+    } else if (type === 'blink') {
+      this.playBlink(targetAudioTime);
+    } else if (type === 'pop') {
+      this.playPop(targetAudioTime);
     } else {
       this.playTambourine(targetAudioTime);
     }
@@ -172,11 +239,15 @@ class AudioPlayer {
   /**
    * 遅延なしで即時に再生する（プレビューや非再生時）
    */
-  private playImmediate(type: 'sparkle' | 'tambourine') {
+  private playImmediate(type: 'sparkle' | 'tambourine' | 'pop' | 'blink') {
     const ctx = this.initCtx();
     const now = ctx.currentTime;
     if (type === 'sparkle') {
       this.playSparkle(now);
+    } else if (type === 'blink') {
+      this.playBlink(now);
+    } else if (type === 'pop') {
+      this.playPop(now);
     } else {
       this.playTambourine(now);
     }

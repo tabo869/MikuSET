@@ -191,7 +191,7 @@ export function MusicProvider({ children }: MusicProviderProps) {
             ...prev,
             hasCamera: false,
             isVirtualInputMode: true,
-            showInputLabels: false
+            showInputLabels: true
           }));
         } else {
           console.log(`[MusicManager] ${videoInputs.length} 個のカメラを検出しました`);
@@ -203,7 +203,7 @@ export function MusicProvider({ children }: MusicProviderProps) {
           ...prev,
           hasCamera: false,
           isVirtualInputMode: true,
-          showInputLabels: false
+          showInputLabels: true
         }));
       }
     };
@@ -502,23 +502,45 @@ export function MusicProvider({ children }: MusicProviderProps) {
     }
   }, []);
 
+  const resetPlayProgress = useCallback(() => {
+    const win = window as any;
+    win.__mikusetCurrentPosition = 0;
+    if (win.__mikusetHitWordIds) {
+      win.__mikusetHitWordIds.clear();
+    }
+  }, []);
+
   const stop = useCallback(() => {
     const player = playerRef.current;
     if (!player) return;
 
+    resetPlayProgress();
     clearGlobalMusicData();
 
     // requestStop() は TextAlive の内部分析エンジンを完全停止させてしまい、
     // 再度 requestPlay() しても onTimeUpdate が発火しなくなる。
     // そのため requestPause + requestMediaSeek(0) で「一時停止＋先頭に戻す」方式にする。
     player.requestPause();
-    player.requestMediaSeek(0);
-    // ★ TextAliveの非同期イベントに頼らず、ここで強制的にisPlayingを同期的にfalseにする。
-    //   これによりNoteManager等のライフサイクルが確実にアンマウントリセットを処理できる
-    setState((prev) => ({ ...prev, isPlaying: false, isTrackingTest: false, calibrationStep: 'NONE' }));
+    
+    // 同じ楽曲を再ロードして完全初期化
+    const url = state.activeSongUrl;
+    setState((prev) => ({
+      ...prev,
+      isPlaying: false,
+      isTrackingTest: false,
+      calibrationStep: 'NONE',
+      isReady: false,
+      isVideoReady: false,
+      statusMessage: '楽曲データを再読み込み中...',
+    }));
+
     positionRef.current = 0;
     maxPositionRef.current = 0;
-  }, [clearGlobalMusicData]);
+
+    const song = CONTEST_SONGS.find((s) => s.url === url);
+    const options = song && song.lyricId ? { video: { lyricId: song.lyricId } } : undefined;
+    player.createFromSongUrl(url, options);
+  }, [resetPlayProgress, clearGlobalMusicData, state.activeSongUrl]);
 
   const togglePlayPause = useCallback(() => {
     const p = playerRef.current;

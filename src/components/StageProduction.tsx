@@ -32,7 +32,7 @@ function calculateFinalLevel(
 // ---------------------------------------------------------------------------
 // DynamicLights: 進行に合わせてライトの強さや色を変える
 // ---------------------------------------------------------------------------
-function DynamicLights() {
+function DynamicLights({ isDroneActive }: { isDroneActive: boolean }) {
   const ambientRef = useRef<THREE.AmbientLight>(null!);
   const mainSpotRef = useRef<THREE.SpotLight>(null!);
   const subSpotLeftRef = useRef<THREE.SpotLight>(null!);
@@ -47,7 +47,8 @@ function DynamicLights() {
 
 
   useFrame((state, delta) => {
-    const level = calculateFinalLevel(stateRef.current.productionLevel, positionRef.current, choruses);
+    const baseLevel = isDroneActive ? 8 : stateRef.current.productionLevel;
+    const level = calculateFinalLevel(baseLevel, positionRef.current, choruses);
 
     // 目標値（Levelごとに設定）
     let targetAmbient = 0.05;
@@ -129,7 +130,7 @@ function DynamicLights() {
 // ---------------------------------------------------------------------------
 // StageSpotlights: ステージ上部と床面に配置されたビーム演出
 // ---------------------------------------------------------------------------
-function StageSpotlights() {
+function StageSpotlights({ isDroneActive }: { isDroneActive: boolean }) {
   const groupRef = useRef<THREE.Group>(null!);
   const floorGroupRef = useRef<THREE.Group>(null!);
   const { stateRef } = useGameState();
@@ -166,7 +167,8 @@ function StageSpotlights() {
   }, []);
 
   useFrame((state, delta) => {
-    const level = calculateFinalLevel(stateRef.current.productionLevel, positionRef.current, choruses);
+    const baseLevel = isDroneActive ? 8 : stateRef.current.productionLevel;
+    const level = calculateFinalLevel(baseLevel, positionRef.current, choruses);
     const t = state.clock.elapsedTime;
 
     // 天井ライトの制御
@@ -286,7 +288,7 @@ const backgroundFragmentShader = `
   }
 `;
 
-function CyberBackground() {
+function CyberBackground({ isDroneActive }: { isDroneActive: boolean }) {
   const materialRef = useRef<THREE.ShaderMaterial>(null!);
 
   const { stateRef } = useGameState();
@@ -296,7 +298,8 @@ function CyberBackground() {
 
   useFrame((state, delta) => {
     if (!materialRef.current) return;
-    const level = calculateFinalLevel(stateRef.current.productionLevel, positionRef.current, choruses);
+    const baseLevel = isDroneActive ? 8 : stateRef.current.productionLevel;
+    const level = calculateFinalLevel(baseLevel, positionRef.current, choruses);
     materialRef.current.uniforms.uTime.value = state.clock.elapsedTime;
     
     // Level 2以上で背景が光る。コンボが上がるにつれて激しく
@@ -332,7 +335,7 @@ function CyberBackground() {
 // ---------------------------------------------------------------------------
 const MAX_PENLIGHTS = 500;
 
-function AudiencePenlights() {
+function AudiencePenlights({ isDroneActive }: { isDroneActive: boolean }) {
   const groupRef = useRef<THREE.Group>(null!);
   const coreMeshRef = useRef<THREE.InstancedMesh>(null!);
   const glowMeshRef = useRef<THREE.InstancedMesh>(null!);
@@ -375,7 +378,8 @@ function AudiencePenlights() {
   useFrame((state) => {
     if (!coreMeshRef.current || !glowMeshRef.current || !groupRef.current) return;
     
-    const level = calculateFinalLevel(stateRef.current.productionLevel, positionRef.current, choruses);
+    const baseLevel = isDroneActive ? 8 : stateRef.current.productionLevel;
+    const level = calculateFinalLevel(baseLevel, positionRef.current, choruses);
     
     // Levelに応じてペンライトをなだらかに増加させる（最大8段階）
     let targetCount = 0;
@@ -641,11 +645,15 @@ function VirtualStage() {
 
 
 
-export default memo(function StageProduction() {
+interface StageProductionProps {
+  isDroneActive?: boolean;
+}
+
+export default memo(function StageProduction({ isDroneActive = false }: StageProductionProps) {
   const { getSnapshot } = useGameState();
   const { positionRef } = useMusicPlayer();
   const gameState = getSnapshot();
-  const baseLevel = gameState.productionLevel;
+  const baseLevel = isDroneActive ? 8 : gameState.productionLevel;
   
   // TextAlive のサビ判定
   const choruses = (window as unknown as Record<string, unknown>).__mikusetChoruses as { startTime: number; endTime: number }[] | undefined;
@@ -663,20 +671,18 @@ export default memo(function StageProduction() {
   }
 
   const finalLevel = Math.max(baseLevel, isChorus ? 8 : 0);
-  const shakeIntensity = finalLevel >= 8 ? 0.05 : (finalLevel >= 6 ? 0.02 : 0);
-
   const level = finalLevel;
 
   return (
     <>
-      <DynamicLights />
-      <CyberBackground />
-      <AudiencePenlights />
+      <DynamicLights isDroneActive={isDroneActive} />
+      <CyberBackground isDroneActive={isDroneActive} />
+      <AudiencePenlights isDroneActive={isDroneActive} />
       <VirtualStage />
-      <StageSpotlights />
+      <StageSpotlights isDroneActive={isDroneActive} />
       
-      {/* Level 8以上（極限状態/サビ中）でのみ強烈な画面揺れ */}
-      {level >= 8 && (
+      {/* Level 8以上（極限状態/サビ中）かつドローン演出中でない場合のみ強烈な画面揺れ */}
+      {level >= 8 && !isDroneActive && (
         <CameraShake 
           yawFrequency={0.2} 
           pitchFrequency={0.2} 

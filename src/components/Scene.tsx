@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
+import { useRef, useEffect, useState, useCallback, useMemo, Suspense } from 'react';
 import * as THREE from 'three';
 import { Canvas, useThree, useFrame } from '@react-three/fiber';
 import { PerspectiveCamera, OrbitControls, Text } from '@react-three/drei';
@@ -158,6 +158,67 @@ function JudgeLine() {
       </mesh>
     </group>
   );
+}
+
+
+
+/**
+ * 3D空間上のグリッド座標を、HTML 2Dピクセル座標に射影・同期するプロジェクター
+ */
+function GridProjector() {
+  const { camera, size, viewport } = useThree();
+
+  useFrame(() => {
+    const scaleX = Math.min(1.0, viewport.width / 11);
+    const scaleY = Math.min(1.0, viewport.height / 7);
+    const safeScale = Math.min(scaleX, scaleY);
+
+    const vecLU = new THREE.Vector3(-4.8 * safeScale, 2.8 * safeScale, 0);
+    const vecRD = new THREE.Vector3(0, -2.8 * safeScale, 0);
+
+    const vecRU_LU = new THREE.Vector3(0, 2.8 * safeScale, 0);
+    const vecRU_RD = new THREE.Vector3(4.8 * safeScale, -2.8 * safeScale, 0);
+
+    // プロジェクション (3D → NDC [-1, 1])
+    vecLU.project(camera);
+    vecRD.project(camera);
+    vecRU_LU.project(camera);
+    vecRU_RD.project(camera);
+
+    // NDC → 画面ピクセル座標 (Canvas基準)
+    const leftX_LU = ((vecLU.x + 1) * size.width) / 2;
+    const leftY_LU = ((-vecLU.y + 1) * size.height) / 2;
+    const leftX_RD = ((vecRD.x + 1) * size.width) / 2;
+    const leftY_RD = ((-vecRD.y + 1) * size.height) / 2;
+
+    const rightX_LU = ((vecRU_LU.x + 1) * size.width) / 2;
+    const rightY_LU = ((-vecRU_LU.y + 1) * size.height) / 2;
+    const rightX_RD = ((vecRU_RD.x + 1) * size.width) / 2;
+    const rightY_RD = ((-vecRU_RD.y + 1) * size.height) / 2;
+
+    // 左グリッドの 2D スタイル情報
+    const leftStyle = {
+      left: leftX_LU,
+      top: leftY_LU,
+      width: leftX_RD - leftX_LU,
+      height: leftY_RD - leftY_LU,
+    };
+
+    // 右グリッドの 2D スタイル情報
+    const rightStyle = {
+      left: rightX_LU,
+      top: rightY_LU,
+      width: rightX_RD - rightX_LU,
+      height: rightY_RD - rightY_LU,
+    };
+
+    // イベントを発火して VirtualInputManager に伝える
+    window.dispatchEvent(new CustomEvent('mikuset-grid-projection', {
+      detail: { leftStyle, rightStyle, safeScale }
+    }));
+  });
+
+  return null;
 }
 
 /**
@@ -487,6 +548,7 @@ function RankingBoard({ songUrl, songInfo }: { songUrl: string; songInfo?: { tit
  * 3Dシーンメイン
  */
 export default function Scene() {
+  const containerRef = useRef<HTMLDivElement>(null);
   const handsDataRef: BothHandsDataRef = useRef({ ...DEFAULT_BOTH_HANDS });
   const leftHandRef = useRef(createHandProxy(handsDataRef, 'left')).current;
   const rightHandRef = useRef(createHandProxy(handsDataRef, 'right')).current;
@@ -495,6 +557,9 @@ export default function Scene() {
   const { stateRef } = useGameState();
 
   const [cinematicActive, setCinematicActive] = useState(false);
+
+  // ゲーム開始前のタイトル画面表示中、またはゲーム終了後のドローン演出アクティブ時
+  const isDroneActive = cinematicActive || (!musicState.isPlaying && !musicState.isTrackingTest);
 
   // 視点リセット制御用の状態変数とRef
   const controlsRef = useRef<any>(null);
@@ -583,7 +648,7 @@ export default function Scene() {
   }, [stateRef, musicState.isAutoPlayMode, isCameraMoved]);
 
   return (
-    <div style={{ position: 'relative', width: '100%', height: '100%', background: '#000' }}>
+    <div ref={containerRef} style={{ position: 'relative', width: '100%', height: '100%', background: '#000' }}>
       {!musicState.isVirtualInputMode && (
         <MotionDetector 
           handsDataRef={handsDataRef} 
@@ -600,11 +665,9 @@ export default function Scene() {
         />
       )}
 
-      {musicState.isVirtualInputMode && musicState.isPlaying && (
-        <VirtualInputManager handsDataRef={handsDataRef} isActive={musicState.isVirtualInputMode} />
-      )}
 
-      <PhraseDisplay positionRef={positionRef} />
+
+
 
       {/* 視点手動リセットボタン（オートプレイ中に視点移動があるときのみ浮き出て表示） */}
       {showResetButton && (
@@ -643,47 +706,63 @@ export default function Scene() {
       )}
 
       <Canvas style={{ width: '100%', height: '100%', background: '#050510' }}>
-        <ResponsiveCamera cinematicActive={cinematicActive} />
-        <CameraReset 
-          isAutoPlayMode={musicState.isAutoPlayMode} 
-          cinematicActive={cinematicActive} 
-          controlsRef={controlsRef}
-          resetTrigger={resetTrigger}
-          onResetComplete={handleResetComplete}
-        />
-        <DroneCinematic active={cinematicActive} />
+        <Suspense fallback={null}>
+          <ResponsiveCamera cinematicActive={isDroneActive} />
+          <CameraReset 
+            isAutoPlayMode={musicState.isAutoPlayMode} 
+            cinematicActive={isDroneActive} 
+            controlsRef={controlsRef}
+            resetTrigger={resetTrigger}
+            onResetComplete={handleResetComplete}
+          />
+          <DroneCinematic active={isDroneActive} />
 
-        {!musicState.isPlaying && !musicState.isTrackingTest && !cinematicActive && (
-          <CinematicTitle activeSongUrl={musicState.activeSongUrl} />
-        )}
+          {!musicState.isPlaying && !musicState.isTrackingTest && (
+            <CinematicTitle activeSongUrl={musicState.activeSongUrl} />
+          )}
 
-        {(musicState.isPlaying || musicState.isTrackingTest || cinematicActive) && (
-          <StageProduction />
-        )}
-        {(musicState.isPlaying === true || musicState.isTrackingTest === true) && (
-          <>
-            <JudgeLine />
-            <PlayAreaFrame isVisible={true} />
-            <Baton handDataRef={leftHandRef} trailColor="#66aaff" />
-            <Baton handDataRef={rightHandRef} trailColor="#ff66aa" />
-          </>
-        )}
+          {(musicState.isPlaying || musicState.isTrackingTest || isDroneActive) && (
+            <StageProduction isDroneActive={isDroneActive} />
+          )}
+          {(musicState.isPlaying === true || musicState.isTrackingTest === true) && (
+            <>
+              <JudgeLine />
+              <PlayAreaFrame isVisible={true} />
+              <Baton handDataRef={leftHandRef} trailColor="#66aaff" />
+              <Baton handDataRef={rightHandRef} trailColor="#ff66aa" />
+            </>
+          )}
 
-        <NoteManager handsDataRef={handsDataRef} />
+          <NoteManager handsDataRef={handsDataRef} />
 
-        <OrbitControls 
-          ref={controlsRef}
-          onChange={handleControlsChange}
-          enabled={musicState.isAutoPlayMode && !cinematicActive} 
-          enableRotate={musicState.isAutoPlayMode && !cinematicActive}
-          enableZoom={musicState.isAutoPlayMode && !cinematicActive}
-          enablePan={false}
-          minDistance={10}
-          maxDistance={150}
-          target={[0, -5, -80]}
-        />
-        <MagicalGuestEffects />
+          {musicState.isVirtualInputMode && musicState.isPlaying && (
+            <GridProjector />
+          )}
+
+
+
+          <OrbitControls 
+            ref={controlsRef}
+            onChange={handleControlsChange}
+            enabled={musicState.isAutoPlayMode && !isDroneActive} 
+            enableRotate={musicState.isAutoPlayMode && !isDroneActive}
+            enableZoom={musicState.isAutoPlayMode && !isDroneActive}
+            enablePan={false}
+            minDistance={10}
+            maxDistance={150}
+            target={[0, -5, -80]}
+          />
+          <MagicalGuestEffects />
+        </Suspense>
       </Canvas>
+
+      {musicState.isVirtualInputMode && musicState.isPlaying && (
+        <VirtualInputManager handsDataRef={handsDataRef} isActive={musicState.isVirtualInputMode} />
+      )}
+
+
+
+      <PhraseDisplay positionRef={positionRef} />
     </div>
   );
 }
@@ -714,11 +793,16 @@ function MagicalGuestEffects() {
 
   useEffect(() => {
     const handleTrigger = (e: any) => {
-      const type = e.detail?.type; // 'sparkle' | 'tambourine'
+      const type = e.detail?.type; // 'sparkle' | 'pop' | 'blink' | 'tambourine'
       const id = Math.random().toString(36).substring(2, 9);
       
       // 1. 波紋（リップル）の追加
-      const rippleColor = type === 'sparkle' ? '#ff66b2' : '#00d2ff';
+      let rippleColor = '#ff66b2';
+      if (type === 'pop' || type === 'tambourine') {
+        rippleColor = '#00d2ff';
+      } else if (type === 'blink') {
+        rippleColor = '#39ff14';
+      }
       setRipples((prev) => [
         ...prev,
         { id, scale: 0.1, opacity: 0.8, color: rippleColor }
@@ -726,9 +810,12 @@ function MagicalGuestEffects() {
 
       // 2. パーティクル（キラキラ）の追加（35個）
       const newParticles: ParticleItem[] = [];
-      const colors = type === 'sparkle'
-        ? ['#ff3399', '#ff85c2', '#ffeb3b', '#e040fb']
-        : ['#00b2ff', '#66d9ff', '#00e5ff', '#1de9b6'];
+      let colors = ['#ff3399', '#ff85c2', '#ffeb3b', '#e040fb']; // sparkle (笑顔: ピンク系)
+      if (type === 'pop' || type === 'tambourine') {
+        colors = ['#00b2ff', '#66d9ff', '#00e5ff', '#1de9b6']; // pop/tambourine (口開き: 青系)
+      } else if (type === 'blink') {
+        colors = ['#39ff14', '#bfff00', '#00ff88', '#adff2f']; // blink (まばたき: 緑系)
+      }
 
       for (let i = 0; i < 35; i++) {
         // カメラの手前（Z=7付近）のランダムな位置
