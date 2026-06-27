@@ -292,9 +292,10 @@ interface NoteProps {
   onHit: (id: string, hand: 'left' | 'right') => void;
   onMiss: (id: string, hand: 'left' | 'right') => void;
   isAutoPlayMode?: boolean;
+  globalOffsetMs?: number;
 }
 
-const Note = memo(function Note({ note, positionRef, handsDataRef, onHit, onMiss, isAutoPlayMode = false }: NoteProps) {
+const Note = memo(function Note({ note, positionRef, handsDataRef, onHit, onMiss, isAutoPlayMode = false, globalOffsetMs = 0 }: NoteProps) {
   const outerGroupRef = useRef<THREE.Group>(null!);
   const groupRef = useRef<THREE.Group>(null!);
   const meshRef = useRef<THREE.Mesh>(null!);
@@ -332,7 +333,7 @@ const Note = memo(function Note({ note, positionRef, handsDataRef, onHit, onMiss
   useFrame((_s, delta) => {
     if (!groupRef.current) return;
 
-    const now = positionRef.current;
+    const now = positionRef.current + globalOffsetMs;
     const noteSpeed = note.speed ?? NOTE_TRAVEL_TIME;
     const elapsed = now - note.spawnTime;
     const progress = Math.max(0, elapsed / noteSpeed);

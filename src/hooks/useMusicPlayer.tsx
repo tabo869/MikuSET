@@ -23,7 +23,7 @@ import { CONTEST_SONGS } from '../config/songs';
  * ※ TextAlive開発者サイトで発行されたトークン
  *    無効な場合はデモモードで動作する
  */
-const APP_TOKEN = '79CRWtNTCESCDnTe';
+const APP_TOKEN = '9Q2d6XgVSDAA1NuA';
 
 /**
  * デフォルト楽曲はコンテスト曲の1曲目

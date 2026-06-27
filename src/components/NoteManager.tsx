@@ -561,6 +561,7 @@ export default function NoteManager({ handsDataRef }: NoteManagerProps) {
           onHit={handleHit}
           onMiss={handleMiss}
           isAutoPlayMode={state.isAutoPlayMode}
+          globalOffsetMs={gameStateRef.current.globalOffsetMs}
         />
       ))}
     </>
