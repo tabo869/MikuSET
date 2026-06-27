@@ -222,6 +222,24 @@ function GridProjector() {
 }
 
 /**
+ * カウントダウン中、曲がまだ本格再生されていない状態でも、
+ * 仮想的なマイナス時間を進めてノーツの先行出現を滑らかに行うプロジェクター
+ */
+function CountdownTimeProgressor({ positionRef }: { positionRef: React.RefObject<number> }) {
+  const { stateRef } = useGameState();
+  const { state: musicState } = useMusicPlayer();
+
+  useFrame((_, delta) => {
+    // カウントダウンがアクティブ、かつ曲が本格再生（物理的な再生）されていない間のみ、時間をマイナスから0に向かって進める
+    if (stateRef.current.isCountdownActive && !musicState.isPlaying && positionRef.current !== null) {
+      (positionRef as any).current += delta * 1000;
+    }
+  });
+
+  return null;
+}
+
+/**
  * プレイエリア枠
  */
 function PlayAreaFrame({ isVisible }: { isVisible: boolean }) {
@@ -745,6 +763,7 @@ export default function Scene() {
             </>
           )}
 
+          <CountdownTimeProgressor positionRef={positionRef} />
           <NoteManager handsDataRef={handsDataRef} />
 
           {musicState.isVirtualInputMode && (musicState.isPlaying || isCountdownActive) && (

@@ -233,7 +233,6 @@ export default function MusicManager() {
 
     isUserStopped.current = false;
     gameActions.reset();
-    positionRef.current = 0;
     maxPositionRef.current = 0;
 
     // カウントダウンを開始する (3 -> 2 -> 1 -> GO!)
@@ -244,6 +243,9 @@ export default function MusicManager() {
     const firstNoteTime = (window as any).__mikusetFirstWordTime || 0;
     const countdownTotalTime = 3000; // 3秒間
     const playDelay = Math.max(0, countdownTotalTime - firstNoteTime);
+
+    // 仮想的なマイナス時間（カウントダウン進行用）を設定
+    positionRef.current = -playDelay;
 
     if (playDelay > 0) {
       // 歌い出しが早い曲：まず同期再生でアンロックし、100ms遅らせて確実に一時停止させてロードを待つ
