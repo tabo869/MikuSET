@@ -4,7 +4,7 @@ import { Line } from '@react-three/drei';
 import * as THREE from 'three';
 import Note from './Note';
 import { useMusicPlayer } from '../hooks/useMusicPlayer';
-import { useGameState } from '../hooks/useGameState';
+import { useGameState, useGameStateSnapshot } from '../hooks/useGameState';
 import type { NoteData } from '../types/note';
 import { DIFFICULTIES } from '../config/difficulty';
 import type { BothHandsDataRef } from '../types/hand';
@@ -246,6 +246,7 @@ export default function NoteManager({ handsDataRef }: NoteManagerProps) {
   const { viewport } = useThree();
   const { state, positionRef } = useMusicPlayer();
   const { stateRef: gameStateRef, actions: gameActions } = useGameState();
+  const gameState = useGameStateSnapshot();
 
   const scaleX = Math.min(1.0, viewport.width / 11);
   const scaleY = Math.min(1.0, viewport.height / 7);
@@ -315,9 +316,11 @@ export default function NoteManager({ handsDataRef }: NoteManagerProps) {
     return () => clearInterval(interval);
   }, [gameStateRef]);
 
+  const isCountdownActive = gameState.isCountdownActive;
+
   useEffect(() => {
-    if (state.isPlaying) {
-      // 再生開始時にインデックスを0に戻すが、データ自体は保持する
+    if (state.isPlaying || isCountdownActive) {
+      // 再生開始またはカウントダウン開始時にインデックスを0に戻すが、データ自体は保持する
       nextIndexLeftRef.current = 0;
       nextIndexRightRef.current = 0;
       setActiveNotes([]);
@@ -331,7 +334,7 @@ export default function NoteManager({ handsDataRef }: NoteManagerProps) {
           else (el as HTMLElement).style.display = 'none';
         });
       }, 100);
-      console.log('[NoteManager] 再生開始を検知。ノーツ状態を強制リセットしました。');
+      console.log('[NoteManager] カウントダウンまたは再生開始を検知。ノーツ状態を強制リセットしました。');
     } else {
       setActiveNotes([]);
       hitWordIdsRef.current.clear();
@@ -344,12 +347,12 @@ export default function NoteManager({ handsDataRef }: NoteManagerProps) {
       }, 100);
       console.log('[NoteManager] 再生停止を検知。画面上のノーツをクリアしました。');
     }
-  }, [state.isPlaying]);
+  }, [state.isPlaying, isCountdownActive]);
 
   const lastLogTimeRef = useRef<number>(0);
 
   useFrame(() => {
-    if (!wordsInitializedRef.current && state.isVideoReady && state.isPlaying) {
+    if (!wordsInitializedRef.current && state.isVideoReady && (state.isPlaying || isCountdownActive)) {
       const gs = gameStateRef.current;
       const diffCfg = DIFFICULTIES[gs.currentDifficulty];
 

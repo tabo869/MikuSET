@@ -262,3 +262,34 @@ export function useProductionLevel(): number {
 
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
+
+/**
+ * ゲームステート全体を購読してリアクティブな再描画を発生させるフック
+ */
+export function useGameStateSnapshot(): GameState {
+  const context = useGameState();
+  
+  const subscribe = useCallback((callback: () => void) => {
+    let prev = context.getSnapshot();
+    const fn = () => {
+      const current = context.getSnapshot();
+      if (
+        current.hits !== prev.hits ||
+        current.misses !== prev.misses ||
+        current.combo !== prev.combo ||
+        current.isCountdownActive !== prev.isCountdownActive ||
+        current.currentDifficulty !== prev.currentDifficulty ||
+        current.isGameOver !== prev.isGameOver
+      ) {
+        prev = current;
+        callback();
+      }
+    };
+    const interval = setInterval(fn, 50); // 50msごとにポーリング
+    return () => clearInterval(interval);
+  }, [context]);
+
+  const getSnapshot = useCallback(() => context.getSnapshot(), [context]);
+
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
