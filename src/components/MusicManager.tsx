@@ -35,6 +35,7 @@ export default function MusicManager() {
   const [fakeProgress, setFakeProgress] = useState(0);
 
   const isUserStopped = useRef(false);
+  const playTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [selectedDifficulty, setSelectedDifficulty] = useState<DifficultyLevel>(gameStateRef.current.currentDifficulty);
   const [localOffsetMs, setLocalOffsetMs] = useState(gameStateRef.current.globalOffsetMs);
@@ -196,55 +197,69 @@ export default function MusicManager() {
   useEffect(() => {
     if (countdown === null) return;
     if (countdown === 0) {
-      // 'GO!' 表示後に再生開始
+      // 'GO!' 表示後にカウントダウン表示を消す
       const timer = setTimeout(() => {
         setCountdown(null);
-        // 今回の修正で START ボタンからは必ず最初からの扱いになる（STOPを経由するため）
-        gameActions.reset();
-        isUserStopped.current = false;
-        positionRef.current = 0;
-        maxPositionRef.current = 0;
-        actions.play(true); // forceStart
       }, 700);
       return () => clearTimeout(timer);
     }
-    // 1秒ごとにカウントダウン
+    // 1秒ごとにカウントダウンを進める
     const timer = setTimeout(() => setCountdown((c) => (c as number) - 1), 1000);
     return () => clearTimeout(timer);
-  }, [countdown, actions, gameActions]);
+  }, [countdown]);
 
-  /** 再生開始ハンドラ（ブラウザ制限回避のため、クリック直後に同期的に再生命令を出す） */
+  /** 再生開始ハンドラ */
   const handleStart = async () => {
+    if (playTimerRef.current) {
+      clearTimeout(playTimerRef.current);
+      playTimerRef.current = null;
+    }
+
     try {
-      // 画面固定の成功率を高めるため、フルスクリーンを要求（Android等）
       if (document.documentElement.requestFullscreen) {
         await document.documentElement.requestFullscreen().catch(() => {});
       }
-
-      // スマートフォンでの誤操作防止のため、可能であれば画面を横向きにロック
       if (typeof screen !== 'undefined' && (screen as any).orientation && (screen as any).orientation.lock) {
-        await (screen as any).orientation.lock('landscape').catch(() => {
-          // ロックに失敗（iOSや非フルスクリーン時）しても続行
-        });
+        await (screen as any).orientation.lock('landscape').catch(() => {});
       }
-    } catch (e) {
-      // API非対応ブラウザ
-    }
+    } catch (e) {}
 
-    // ★ 再生命令を最優先で実行（1msの遅延も許さない）
+    // ブラウザのオートプレイ制限（AudioContext無効化）を回避するため、一瞬再生して即座に一時停止する
     actions.play(true);
-    
+    setTimeout(() => {
+      actions.pause();
+    }, 50);
+
     isUserStopped.current = false;
     gameActions.reset();
+    positionRef.current = 0;
+    maxPositionRef.current = 0;
+
+    // カウントダウンを開始する (3 -> 2 -> 1 -> GO!)
+    setCountdown(3);
+
+    // 最初のノーツ出現時間に基づいて、曲の本格的な再生開始ディレイを決定する
+    const firstNoteTime = (window as any).__mikusetFirstWordTime || 0;
+    const countdownTotalTime = 3000; // 3秒間
+    const playDelay = Math.max(0, countdownTotalTime - firstNoteTime);
+
+    // 指定されたディレイ後に曲を本格再生する
+    playTimerRef.current = setTimeout(() => {
+      actions.play(true);
+      playTimerRef.current = null;
+    }, playDelay);
   };
-
-
 
   /** 中断（ストップ）ハンドラ */
   const handleStop = () => {
     isUserStopped.current = true;
-    gameActions.reset(); // ★追加: 途中リタイア時もコンボや演出レベル(productionLevel)を確実にリセット
-    actions.stop(); // 曲の再生を停止し、位置を0に戻す
+    setCountdown(null);
+    if (playTimerRef.current) {
+      clearTimeout(playTimerRef.current);
+      playTimerRef.current = null;
+    }
+    gameActions.reset();
+    actions.stop();
   };
 
   return (
