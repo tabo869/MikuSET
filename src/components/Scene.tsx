@@ -232,7 +232,9 @@ function CountdownTimeProgressor({ positionRef }: { positionRef: React.RefObject
   useFrame((_, delta) => {
     // カウントダウンがアクティブ、かつ曲が本格再生（物理的な再生）されていない間のみ、時間をマイナスから0に向かって進める
     if (stateRef.current.isCountdownActive && !musicState.isPlaying && positionRef.current !== null) {
-      (positionRef as any).current += delta * 1000;
+      const nextPos = positionRef.current + delta * 1000;
+      // 時間が0を超えて暴走するのを絶対に防ぎ、物理再生開始まで0秒でホールドする
+      (positionRef as any).current = Math.min(0, nextPos);
     }
   });
 
