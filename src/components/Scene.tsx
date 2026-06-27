@@ -557,9 +557,21 @@ export default function Scene() {
   const { stateRef } = useGameState();
 
   const [cinematicActive, setCinematicActive] = useState(false);
+  const [isCountdownActive, setIsCountdownActive] = useState(false);
+
+  useEffect(() => {
+    const checkCountdown = () => {
+      const active = stateRef.current.isCountdownActive;
+      if (active !== isCountdownActive) {
+        setIsCountdownActive(active);
+      }
+    };
+    const interval = setInterval(checkCountdown, 50);
+    return () => clearInterval(interval);
+  }, [stateRef, isCountdownActive]);
 
   // ゲーム開始前のタイトル画面表示中、またはゲーム終了後のドローン演出アクティブ時
-  const isDroneActive = cinematicActive || (!musicState.isPlaying && !musicState.isTrackingTest);
+  const isDroneActive = cinematicActive || (!musicState.isPlaying && !musicState.isTrackingTest && !isCountdownActive);
 
   // 視点リセット制御用の状態変数とRef
   const controlsRef = useRef<any>(null);
@@ -717,14 +729,14 @@ export default function Scene() {
           />
           <DroneCinematic active={isDroneActive} />
 
-          {!musicState.isPlaying && !musicState.isTrackingTest && (
+          {!musicState.isPlaying && !musicState.isTrackingTest && !isCountdownActive && (
             <CinematicTitle activeSongUrl={musicState.activeSongUrl} />
           )}
 
-          {(musicState.isPlaying || musicState.isTrackingTest || isDroneActive) && (
+          {(musicState.isPlaying || musicState.isTrackingTest || isDroneActive || isCountdownActive) && (
             <StageProduction isDroneActive={isDroneActive} />
           )}
-          {(musicState.isPlaying === true || musicState.isTrackingTest === true) && (
+          {(musicState.isPlaying === true || musicState.isTrackingTest === true || isCountdownActive === true) && (
             <>
               <JudgeLine />
               <PlayAreaFrame isVisible={true} />
@@ -735,7 +747,7 @@ export default function Scene() {
 
           <NoteManager handsDataRef={handsDataRef} />
 
-          {musicState.isVirtualInputMode && musicState.isPlaying && (
+          {musicState.isVirtualInputMode && (musicState.isPlaying || isCountdownActive) && (
             <GridProjector />
           )}
 
@@ -756,7 +768,7 @@ export default function Scene() {
         </Suspense>
       </Canvas>
 
-      {musicState.isVirtualInputMode && musicState.isPlaying && (
+      {musicState.isVirtualInputMode && (musicState.isPlaying || isCountdownActive) && (
         <VirtualInputManager handsDataRef={handsDataRef} isActive={musicState.isVirtualInputMode} />
       )}
 

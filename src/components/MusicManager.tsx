@@ -200,13 +200,14 @@ export default function MusicManager() {
       // 'GO!' 表示後にカウントダウン表示を消す
       const timer = setTimeout(() => {
         setCountdown(null);
+        gameActions.setIsCountdownActive(false);
       }, 700);
       return () => clearTimeout(timer);
     }
     // 1秒ごとにカウントダウンを進める
     const timer = setTimeout(() => setCountdown((c) => (c as number) - 1), 1000);
     return () => clearTimeout(timer);
-  }, [countdown]);
+  }, [countdown, gameActions]);
 
   /** 再生開始ハンドラ */
   const handleStart = async () => {
@@ -237,6 +238,7 @@ export default function MusicManager() {
 
     // カウントダウンを開始する (3 -> 2 -> 1 -> GO!)
     setCountdown(3);
+    gameActions.setIsCountdownActive(true);
 
     // 最初のノーツ出現時間に基づいて、曲の本格的な再生開始ディレイを決定する
     const firstNoteTime = (window as any).__mikusetFirstWordTime || 0;
@@ -254,6 +256,7 @@ export default function MusicManager() {
   const handleStop = () => {
     isUserStopped.current = true;
     setCountdown(null);
+    gameActions.setIsCountdownActive(false);
     if (playTimerRef.current) {
       clearTimeout(playTimerRef.current);
       playTimerRef.current = null;
@@ -268,36 +271,40 @@ export default function MusicManager() {
       {countdown !== null && (
         <div style={{
           position: 'absolute',
-          inset: 0,
-          zIndex: 50,
+          top: '40px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 3000,
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
-          justifyContent: 'center',
-          background: 'rgba(0, 0, 10, 0.75)',
-          backdropFilter: 'blur(6px)',
+          justifyContent: 'flex-start',
           pointerEvents: 'none',
+          userSelect: 'none',
         }}>
           <div style={{
-            fontSize: countdown === 0 ? 96 : 120,
+            fontSize: countdown === 0 ? 80 : 100,
             fontWeight: 900,
-            letterSpacing: 8,
+            letterSpacing: 4,
             color: countdown === 0 ? '#00ffcc' : '#ffffff',
             textShadow: countdown === 0
-              ? '0 0 40px #00ffcc, 0 0 80px #00ffaa'
-              : '0 0 40px rgba(255,255,255,0.8)',
+              ? '0 0 30px #00ffcc, 0 0 60px #00ffaa'
+              : '0 0 35px rgba(255,255,255,0.7), 0 0 70px rgba(0,210,255,0.5)',
             animation: 'countdownPop 0.3s ease-out',
             transition: 'all 0.2s ease',
             lineHeight: 1,
+            fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
           }}>
             {countdown === 0 ? 'GO!' : countdown}
           </div>
           <div style={{
-            marginTop: 32,
-            fontSize: 18,
+            marginTop: 12,
+            fontSize: 14,
             color: 'rgba(180, 210, 255, 0.8)',
-            letterSpacing: 4,
+            letterSpacing: 2,
             fontWeight: 300,
+            textShadow: '0 0 10px rgba(0,210,255,0.3)',
+            fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
           }}>
             {t('読み込み中...', 'LOADING...')}
           </div>

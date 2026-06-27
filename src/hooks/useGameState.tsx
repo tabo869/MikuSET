@@ -30,6 +30,8 @@ export interface GameState {
   swingCooldownMs: number;
   /** エアー太鼓の判定閾値 */
   motionThreshold: number;
+  /** カウントダウンが実行中か */
+  isCountdownActive: boolean;
 }
 
 
@@ -47,6 +49,8 @@ export interface GameActions {
   setSwingCooldownMs: (ms: number) => void;
   /** 判定閾値を変更する */
   setMotionThreshold: (val: number) => void;
+  /** カウントダウン状態を切り替える */
+  setIsCountdownActive: (val: boolean) => void;
 }
 
 
@@ -71,6 +75,7 @@ const INITIAL_STATE: GameState = {
   globalOffsetMs: 0,
   swingCooldownMs: 250,
   motionThreshold: 100000,
+  isCountdownActive: false,
 };
 
 
@@ -191,6 +196,11 @@ export function GameStateProvider({ children }: GameStateProviderProps) {
     notifyListeners();
   }, [notifyListeners]);
 
+  const setIsCountdownActive = useCallback((val: boolean) => {
+    stateRef.current.isCountdownActive = val;
+    notifyListeners();
+  }, [notifyListeners]);
+
 
   const getSnapshot = useCallback(() => {
     return { ...stateRef.current };
@@ -207,6 +217,7 @@ export function GameStateProvider({ children }: GameStateProviderProps) {
       setGlobalOffsetMs,
       setSwingCooldownMs,
       setMotionThreshold,
+      setIsCountdownActive,
     },
     getSnapshot,
   };
