@@ -246,9 +246,14 @@ export default function MusicManager() {
     const playDelay = Math.max(0, countdownTotalTime - firstNoteTime);
 
     if (playDelay > 0) {
-      // 歌い出しが早い曲：まず同期再生でアンロックして、一時停止してロードを待つ
+      // 歌い出しが早い曲：まず同期再生でアンロックし、100ms遅らせて確実に一時停止させてロードを待つ
       actions.play(true);
-      actions.pause();
+      setTimeout(() => {
+        // 中断されていない場合のみ一時停止を実行
+        if (!isUserStopped.current) {
+          actions.pause();
+        }
+      }, 100);
 
       // 指定されたディレイ後に曲を本格再生する（すでに有効化されているため、非同期setTimeoutからでも100%確実に再生できます）
       playTimerRef.current = setTimeout(() => {
@@ -280,7 +285,7 @@ export default function MusicManager() {
       {countdown !== null && (
         <div style={{
           position: 'absolute',
-          top: '40px',
+          top: '180px',
           left: '50%',
           transform: 'translateX(-50%)',
           zIndex: 3000,
