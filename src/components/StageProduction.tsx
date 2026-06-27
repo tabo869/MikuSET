@@ -609,7 +609,7 @@ function VirtualStage({ isDroneActive }: { isDroneActive: boolean }) {
           <Text
             fontSize={6.5}
             color="#00ffcc"
-            font="/fonts/Outfit-Bold.ttf"
+            font="/NotoSansJP-Medium.ttf"
             anchorX="center"
             anchorY="middle"
             position={[0, 8, 0]}
@@ -624,6 +624,7 @@ function VirtualStage({ isDroneActive }: { isDroneActive: boolean }) {
             <Text
               fontSize={3.0}
               color="#ffffff"
+              font="/NotoSansJP-Medium.ttf"
               anchorX="center"
               anchorY="middle"
               position={[0, 2, 0]}
@@ -638,6 +639,7 @@ function VirtualStage({ isDroneActive }: { isDroneActive: boolean }) {
           <Text
             fontSize={2.5}
             color="#aaddff"
+            font="/NotoSansJP-Medium.ttf"
             anchorX="center"
             anchorY="middle"
             position={[0, -5, 0]}
