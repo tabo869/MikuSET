@@ -376,7 +376,8 @@ export function MusicProvider({ children }: MusicProviderProps) {
         }
         console.log(`[MusicManager] 最終Word数: ${words.length} (MaxChars: ${MAX_CHARS_PER_NOTE})`);
 
-        const validFirstWord = words.find(w => w.text && w.text.trim() !== "");
+        // 記号や空文字を排除し、有効な歌詞文字（日本語・英数字）を含む最初の単語を厳格に抽出
+        const validFirstWord = words.find(w => w.text && /[a-zA-Z0-9\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf]/.test(w.text));
         (window as any).__mikusetWords = words;
         (window as any).__mikusetFirstWordTime = validFirstWord ? validFirstWord.startTime : (words.length > 0 ? words[0].startTime : 0);
         (window as any).__mikusetLastWordTime = words.length > 0 ? words[words.length - 1].endTime : 0;
