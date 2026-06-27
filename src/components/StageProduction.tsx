@@ -605,50 +605,113 @@ function VirtualStage({ isDroneActive }: { isDroneActive: boolean }) {
       {/* ドローン演出時のスクリーン表示 (タイトル & ハイスコア) */}
       {isDroneActive && (
         <group position={[0, 15, -14.8]}>
-          {/* メインタイトルロゴ */}
+          {/* メインタイトルロゴ (中央上部) */}
           <Text
-            fontSize={6.5}
+            fontSize={7.0}
             color="#00ffcc"
             font="/NotoSansJP-Medium.ttf"
             anchorX="center"
             anchorY="middle"
-            position={[0, 8, 0]}
+            position={[0, 10, 0]}
             maxWidth={110}
             textAlign="center"
           >
             MikuSET: BEAT BATON
           </Text>
 
-          {/* 選択中の曲情報 */}
+          {/* 選択中の曲情報 (左側) */}
           {activeSong && (
-            <Text
-              fontSize={3.0}
-              color="#ffffff"
-              font="/NotoSansJP-Medium.ttf"
-              anchorX="center"
-              anchorY="middle"
-              position={[0, 2, 0]}
-              maxWidth={110}
-              textAlign="center"
-            >
-              {`NOW SELECTING: ${activeSong.title} / ${activeSong.artist}`}
-            </Text>
+            <group position={[-25, -2, 0]}>
+              <Text
+                fontSize={2.2}
+                color="#88ffee"
+                font="/NotoSansJP-Medium.ttf"
+                anchorX="center"
+                anchorY="middle"
+                position={[0, 4, 0]}
+                maxWidth={45}
+                textAlign="center"
+              >
+                ♪ NOW SELECTING
+              </Text>
+              <Text
+                fontSize={3.5}
+                color="#ffffff"
+                font="/NotoSansJP-Medium.ttf"
+                anchorX="center"
+                anchorY="middle"
+                position={[0, 0, 0]}
+                maxWidth={45}
+                textAlign="center"
+              >
+                {activeSong.title}
+              </Text>
+              <Text
+                fontSize={2.2}
+                color="#cccccc"
+                font="/NotoSansJP-Medium.ttf"
+                anchorX="center"
+                anchorY="middle"
+                position={[0, -3.5, 0]}
+                maxWidth={45}
+                textAlign="center"
+              >
+                {activeSong.artist}
+              </Text>
+            </group>
           )}
 
-          {/* 各難易度のハイスコア */}
-          <Text
-            fontSize={2.5}
-            color="#aaddff"
-            font="/NotoSansJP-Medium.ttf"
-            anchorX="center"
-            anchorY="middle"
-            position={[0, -5, 0]}
-            maxWidth={110}
-            textAlign="center"
-            lineHeight={1.5}
-          >
-            {`--- HIGH SCORES ---\nEASY  :  ${easyHighScore > 0 ? easyHighScore.toLocaleString() : '---'}\nNORMAL  :  ${normalHighScore > 0 ? normalHighScore.toLocaleString() : '---'}\nHARD  :  ${hardHighScore > 0 ? hardHighScore.toLocaleString() : '---'}`}
-          </Text>
+          {/* 各難易度のハイスコア (右側) */}
+          <group position={[25, -2, 0]}>
+            <Text
+              fontSize={2.5}
+              color="#ffcc66"
+              font="/NotoSansJP-Medium.ttf"
+              anchorX="left"
+              anchorY="middle"
+              position={[-15, 5, 0]}
+              maxWidth={45}
+              textAlign="left"
+            >
+              🏆 PERSONAL BESTS
+            </Text>
+            <Text
+              fontSize={2.2}
+              color="#aaddff"
+              font="/NotoSansJP-Medium.ttf"
+              anchorX="left"
+              anchorY="middle"
+              position={[-15, 1, 0]}
+              maxWidth={45}
+              textAlign="left"
+            >
+              {`EASY     :   ${easyHighScore > 0 ? easyHighScore.toLocaleString() : '---'}`}
+            </Text>
+            <Text
+              fontSize={2.2}
+              color="#ff88cc"
+              font="/NotoSansJP-Medium.ttf"
+              anchorX="left"
+              anchorY="middle"
+              position={[-15, -2, 0]}
+              maxWidth={45}
+              textAlign="left"
+            >
+              {`NORMAL   :   ${normalHighScore > 0 ? normalHighScore.toLocaleString() : '---'}`}
+            </Text>
+            <Text
+              fontSize={2.2}
+              color="#ff3366"
+              font="/NotoSansJP-Medium.ttf"
+              anchorX="left"
+              anchorY="middle"
+              position={[-15, -5, 0]}
+              maxWidth={45}
+              textAlign="left"
+            >
+              {`HARD     :   ${hardHighScore > 0 ? hardHighScore.toLocaleString() : '---'}`}
+            </Text>
+          </group>
         </group>
       )}
 

@@ -359,10 +359,21 @@ function DroneCinematic({ active }: { active: boolean }) {
       const pos = new THREE.Vector3().lerpVectors(startPos, endPos, u);
       pos.y += PEAK_HEIGHT * 4 * u * (1 - u);
 
-      // 注視点：(0, 0, 0) からボーカル位置 (0, -5, -80) まで直線補間
-      const startLook = new THREE.Vector3(0, 0, 0);
-      const endLook = targetLookAt;
-      const lookAtPoint = new THREE.Vector3().lerpVectors(startLook, endLook, u);
+      // 注視点：カメラがボーカル上空を通過するピーク付近（uが0.3〜0.85の間）では、下を向かずに会場方向（Zのプラス側）を向かせる
+      const lookAtPoint = new THREE.Vector3();
+      if (u < 0.3) {
+        const startLook = new THREE.Vector3(0, 0, 0);
+        const midLook = new THREE.Vector3(0, -5, -80);
+        lookAtPoint.lerpVectors(startLook, midLook, u / 0.3);
+      } else if (u >= 0.3 && u < 0.85) {
+        const progress = (u - 0.3) / 0.55;
+        const midLook = new THREE.Vector3(0, -5, -80);
+        const venueLook = new THREE.Vector3(0, -3, 30); // Z=30 (会場・客席方向)
+        lookAtPoint.lerpVectors(midLook, venueLook, Math.sin(progress * Math.PI));
+      } else {
+        const venueLook = new THREE.Vector3(0, -5, -80); // 最終的にボーカル位置へ着地
+        lookAtPoint.copy(venueLook);
+      }
 
       camera.position.copy(pos);
       currentLookAt.current.copy(lookAtPoint);
