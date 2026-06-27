@@ -197,9 +197,10 @@ export default function MusicManager() {
   useEffect(() => {
     if (countdown === null) return;
     if (countdown === 0) {
-      // カウントダウン完了の瞬間（GO!）に、最初の歌詞の位置にシーク同期する
+      // カウントダウン完了の瞬間（GO!）に、音量を戻して最初の歌詞の位置にシーク同期する
       const firstNoteTime = (window as any).__mikusetFirstWordTime || 0;
       if (firstNoteTime < 3000) {
+        actions.setVolume(100);
         actions.seek(firstNoteTime);
       }
 
@@ -248,22 +249,20 @@ export default function MusicManager() {
     positionRef.current = -playDelay;
 
     if (playDelay > 0) {
-      // 歌い出しが早い曲：まず同期再生でアンロックし、100ms遅らせて確実に一時停止させてロードを待つ
+      // 歌い出しが早い曲：再生開始時はミュート（音量0）にして同期再生をキックし、オートプレイ制限を回避
+      actions.setVolume(0);
       actions.play(true);
-      setTimeout(() => {
-        // 中断されていない場合のみ一時停止を実行
-        if (!isUserStopped.current) {
-          actions.pause();
-        }
-      }, 100);
 
-      // 指定されたディレイ後に曲を本格再生する（すでに有効化されているため、非同期setTimeoutからでも100%確実に再生できます）
+      // 指定されたディレイ後に音量を通常（100）に戻す（カウントダウン中にフフフとボーカルが聞こえ始める）
       playTimerRef.current = setTimeout(() => {
-        actions.play(false); // forceStart = false で途中から流す
+        if (!isUserStopped.current) {
+          actions.setVolume(100);
+        }
         playTimerRef.current = null;
       }, playDelay);
     } else {
-      // イントロが十分長い曲：即座に本格再生開始
+      // イントロが十分長い曲：即座に音量通常で本格再生開始
+      actions.setVolume(100);
       actions.play(true);
     }
   };
@@ -278,6 +277,7 @@ export default function MusicManager() {
       playTimerRef.current = null;
     }
     gameActions.reset();
+    actions.setVolume(100); // 音量を戻す
     actions.stop();
   };
 

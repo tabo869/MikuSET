@@ -394,13 +394,14 @@ export default function NoteManager({ handsDataRef }: NoteManagerProps) {
 
 
 
-    if (!state.isPlaying) return;
+    const isCountdown = gameStateRef.current.isCountdownActive;
+    if (!state.isPlaying && !isCountdown) return;
 
     const rawNow = positionRef.current;
     const offsetMs = gameStateRef.current.globalOffsetMs;
     const now = rawNow + offsetMs;
 
-    if (rawNow <= 0 && !state.isAutoPlayMode) return;
+    if (rawNow <= 0 && !state.isAutoPlayMode && !isCountdown) return;
 
 
 
