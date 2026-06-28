@@ -532,6 +532,11 @@ function VirtualStage({ isDroneActive }: { isDroneActive: boolean }) {
     return scores[0]?.score ?? 0;
   }, [musicState.activeSongUrl, gameState]);
 
+  const veryHardHighScore = useMemo(() => {
+    const scores = getRankingByDifficulty(musicState.activeSongUrl, 'VeryHard');
+    return scores[0]?.score ?? 0;
+  }, [musicState.activeSongUrl, gameState]);
+
   useFrame((_, delta) => {
     if (!stageRef.current) return;
     const now = positionRef.current;
@@ -670,7 +675,7 @@ function VirtualStage({ isDroneActive }: { isDroneActive: boolean }) {
               font="/NotoSansJP-Medium.ttf"
               anchorX="left"
               anchorY="middle"
-              position={[-15, 5, 0]}
+              position={[-15, 6, 0]}
               maxWidth={45}
               textAlign="left"
             >
@@ -682,11 +687,11 @@ function VirtualStage({ isDroneActive }: { isDroneActive: boolean }) {
               font="/NotoSansJP-Medium.ttf"
               anchorX="left"
               anchorY="middle"
-              position={[-15, 1, 0]}
+              position={[-15, 2.5, 0]}
               maxWidth={45}
               textAlign="left"
             >
-              {`EASY     :   ${easyHighScore > 0 ? easyHighScore.toLocaleString() : '---'}`}
+              {`EASY      :   ${easyHighScore > 0 ? easyHighScore.toLocaleString() : '---'}`}
             </Text>
             <Text
               fontSize={2.2}
@@ -694,11 +699,11 @@ function VirtualStage({ isDroneActive }: { isDroneActive: boolean }) {
               font="/NotoSansJP-Medium.ttf"
               anchorX="left"
               anchorY="middle"
-              position={[-15, -2, 0]}
+              position={[-15, 0, 0]}
               maxWidth={45}
               textAlign="left"
             >
-              {`NORMAL   :   ${normalHighScore > 0 ? normalHighScore.toLocaleString() : '---'}`}
+              {`NORMAL    :   ${normalHighScore > 0 ? normalHighScore.toLocaleString() : '---'}`}
             </Text>
             <Text
               fontSize={2.2}
@@ -706,11 +711,23 @@ function VirtualStage({ isDroneActive }: { isDroneActive: boolean }) {
               font="/NotoSansJP-Medium.ttf"
               anchorX="left"
               anchorY="middle"
+              position={[-15, -2.5, 0]}
+              maxWidth={45}
+              textAlign="left"
+            >
+              {`HARD      :   ${hardHighScore > 0 ? hardHighScore.toLocaleString() : '---'}`}
+            </Text>
+            <Text
+              fontSize={2.2}
+              color="#cc66ff"
+              font="/NotoSansJP-Medium.ttf"
+              anchorX="left"
+              anchorY="middle"
               position={[-15, -5, 0]}
               maxWidth={45}
               textAlign="left"
             >
-              {`HARD     :   ${hardHighScore > 0 ? hardHighScore.toLocaleString() : '---'}`}
+              {`VERY HARD :   ${veryHardHighScore > 0 ? veryHardHighScore.toLocaleString() : '---'}`}
             </Text>
           </group>
         </group>
