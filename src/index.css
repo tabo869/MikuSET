@@ -203,3 +203,32 @@ body > *:not(#root):not(#textalive-media):not(script):not(link):not(style) {
   }
 }
 
+/* ========================================================
+   モバイル（画面縦幅が狭い場合）用の歌詞表示レイアウト調整
+   ======================================================== */
+@media (max-height: 520px) {
+  /* スクロールする過去の歌詞コンテナ */
+  .lyrics-perspective-container {
+    bottom: max(80px, 20vh) !important;
+    height: 60% !important;
+    perspective: 400px !important;
+  }
+  /* メイン歌詞コンテナ（手前） */
+  .lyrics-main-container {
+    bottom: max(35px, 8vh) !important;
+  }
+  /* 過去の歌詞のフォントサイズ */
+  .lyrics-past-span {
+    font-size: clamp(12px, 3vw, 18px) !important;
+  }
+  /* メイン歌詞（ハイライト）のフォントサイズ */
+  .lyrics-main-span {
+    font-size: clamp(15px, 2.5vw, 24px) !important;
+  }
+  /* 過去の歌詞の行高 */
+  .lyrics-past-line {
+    height: 25px !important;
+  }
+}
+
+

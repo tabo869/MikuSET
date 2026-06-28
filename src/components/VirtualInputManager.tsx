@@ -1,5 +1,6 @@
 import { useEffect, useCallback, useState } from 'react';
 import type { BothHandsDataRef } from '../types/hand';
+import { useGameStateSnapshot } from '../hooks/useGameState';
 
 interface VirtualInputManagerProps {
   handsDataRef: BothHandsDataRef;
@@ -72,6 +73,7 @@ interface BoxStyle {
 }
 
 export default function VirtualInputManager({ handsDataRef, isActive }: VirtualInputManagerProps) {
+  const gameState = useGameStateSnapshot();
   const [activeKeys, setActiveKeys] = useState<Record<string, boolean>>({});
   const [safeScale, setSafeScale] = useState<number>(1.0);
 
@@ -197,7 +199,7 @@ export default function VirtualInputManager({ handsDataRef, isActive }: VirtualI
               ...borderStyle,
             }}
           >
-            {cell.label}
+            {gameState.showKeyboardKeys ? cell.label : ''}
           </div>
         );
       })

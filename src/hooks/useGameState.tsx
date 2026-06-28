@@ -32,6 +32,8 @@ export interface GameState {
   motionThreshold: number;
   /** カウントダウンが実行中か */
   isCountdownActive: boolean;
+  /** キーボードのキー文字表記を表示するか */
+  showKeyboardKeys: boolean;
 }
 
 
@@ -51,6 +53,8 @@ export interface GameActions {
   setMotionThreshold: (val: number) => void;
   /** カウントダウン状態を切り替える */
   setIsCountdownActive: (val: boolean) => void;
+  /** キー表示の有無を切り替える */
+  setShowKeyboardKeys: (val: boolean) => void;
 }
 
 
@@ -76,6 +80,7 @@ const INITIAL_STATE: GameState = {
   swingCooldownMs: 250,
   motionThreshold: 100000,
   isCountdownActive: false,
+  showKeyboardKeys: typeof window !== 'undefined' && !(('ontouchstart' in window) || (navigator && navigator.maxTouchPoints > 0)),
 };
 
 
@@ -172,6 +177,7 @@ export function GameStateProvider({ children }: GameStateProviderProps) {
       ...INITIAL_STATE,
       currentDifficulty: prev.currentDifficulty,
       globalOffsetMs: prev.globalOffsetMs,
+      showKeyboardKeys: prev.showKeyboardKeys,
     };
     notifyListeners();
   }, [notifyListeners]);
@@ -201,6 +207,11 @@ export function GameStateProvider({ children }: GameStateProviderProps) {
     notifyListeners();
   }, [notifyListeners]);
 
+  const setShowKeyboardKeys = useCallback((val: boolean) => {
+    stateRef.current.showKeyboardKeys = val;
+    notifyListeners();
+  }, [notifyListeners]);
+
 
   const getSnapshot = useCallback(() => {
     return stateRef.current;
@@ -218,6 +229,7 @@ export function GameStateProvider({ children }: GameStateProviderProps) {
       setSwingCooldownMs,
       setMotionThreshold,
       setIsCountdownActive,
+      setShowKeyboardKeys,
     },
     getSnapshot,
   };
@@ -279,6 +291,7 @@ export function useGameStateSnapshot(): GameState {
         current.combo !== prev.combo ||
         current.isCountdownActive !== prev.isCountdownActive ||
         current.currentDifficulty !== prev.currentDifficulty ||
+        current.showKeyboardKeys !== prev.showKeyboardKeys ||
         current.isGameOver !== prev.isGameOver
       ) {
         prev = current;

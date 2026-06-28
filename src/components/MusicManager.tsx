@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect } from 'react';
 import { useMusicPlayer } from '../hooks/useMusicPlayer';
-import { useGameState } from '../hooks/useGameState';
+import { useGameState, useGameStateSnapshot } from '../hooks/useGameState';
 import { CONTEST_SONGS } from '../config/songs';
 import { DIFFICULTIES, DIFFICULTY_LEVELS } from '../config/difficulty';
 import type { DifficultyLevel } from '../config/difficulty';
@@ -18,6 +18,7 @@ import FaceTracker from './FaceTracker';
 export default function MusicManager() {
   const { state, actions, positionRef, maxPositionRef } = useMusicPlayer();
   const { stateRef: gameStateRef, actions: gameActions } = useGameState();
+  const gameState = useGameStateSnapshot();
   
   const isJa = state.language === 'ja';
   const t = (ja: string, en: string) => (isJa ? ja : en);
@@ -867,6 +868,30 @@ export default function MusicManager() {
                     style={{ width: 12, height: 12, cursor: 'pointer', accentColor: '#00d2ff' }}
                   />
                   {t('歌詞の流れる表示を隠す', 'HIDE SCROLLING LYRICS')}
+                </label>
+
+                <label style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  cursor: 'pointer',
+                  color: '#ffffff',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  background: 'rgba(0, 0, 0, 0.25)',
+                  padding: '6px 12px',
+                  borderRadius: 10,
+                  border: '1px solid rgba(255,255,255,0.06)',
+                  width: '100%',
+                  boxSizing: 'border-box'
+                }}>
+                  <input 
+                    type="checkbox" 
+                    checked={!gameState.showKeyboardKeys}
+                    onChange={(e) => gameActions.setShowKeyboardKeys(!e.target.checked)}
+                    style={{ width: 12, height: 12, cursor: 'pointer', accentColor: '#00d2ff' }}
+                  />
+                  {t('キーボードのキー文字を隠す', 'HIDE KEYBOARD KEYS')}
                 </label>
               </div>
 

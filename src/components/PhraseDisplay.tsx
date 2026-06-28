@@ -207,9 +207,10 @@ export default function PhraseDisplay({ positionRef }: { positionRef: React.RefO
         if (prev.some(p => p.uid.includes(chunk.id))) return prev;
         
         let newY = globalScrollRef.current;
+        const spacing = typeof window !== 'undefined' && window.innerHeight <= 520 ? 25 : 45;
         if (prev.length > 0) {
           const lastY = prev[prev.length - 1].startY;
-          if (newY < lastY + 45) newY = lastY + 45;
+          if (newY < lastY + spacing) newY = lastY + spacing;
         }
         return [...prev, { uid: `${chunk.id}-past-${Date.now()}`, words: chunk.words, startY: newY }];
       });
@@ -262,15 +263,15 @@ export default function PhraseDisplay({ positionRef }: { positionRef: React.RefO
       transition: 'opacity 0.3s ease'
     }}>
       {!state.hideScrollingLyrics && (
-        <div style={{ position: 'absolute', bottom: 'max(130px, 22vh)', left: 0, right: 0, height: '65%', perspective: '600px', perspectiveOrigin: '50% 10%', overflow: 'hidden', maskImage: 'linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.5) 40%, black 80%)', WebkitMaskImage: 'linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.5) 40%, black 80%)', display: 'flex', justifyContent: 'center' }}>
+        <div className="lyrics-perspective-container" style={{ position: 'absolute', bottom: 'max(130px, 22vh)', left: 0, right: 0, height: '65%', perspective: '600px', perspectiveOrigin: '50% 10%', overflow: 'hidden', maskImage: 'linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.5) 40%, black 80%)', WebkitMaskImage: 'linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.5) 40%, black 80%)', display: 'flex', justifyContent: 'center' }}>
           <div style={{ position: 'absolute', bottom: 0, left: '50%', width: '100vw', marginLeft: '-50vw', height: '100%', transformOrigin: '50% 100%', transform: 'rotateX(50deg)', willChange: 'transform' }}>
             <div ref={trackRef} style={{ position: 'absolute', top: '100%', left: 0, width: '100%', willChange: 'transform' }}>
               {pastLines.map((line) => (
-                <div key={line.uid} style={{ position: 'absolute', top: line.startY, left: 0, width: '100%', height: '50px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px' }}>
+                <div key={line.uid} className="lyrics-past-line" style={{ position: 'absolute', top: line.startY, left: 0, width: '100%', height: '50px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px' }}>
                   {line.words.map(w => {
                     const hit = isWordHit(w.startTime, positionRef.current || 0);
                     return (
-                      <span key={w.id} style={{ fontSize: 'clamp(18px, 4vw, 32px)', fontFamily: "'Noto Sans JP', sans-serif", fontWeight: 900, color: hit ? 'rgba(255, 255, 255, 0.95)' : 'rgba(100, 130, 180, 0.3)', textShadow: hit ? '0 0 15px rgba(100, 180, 255, 0.7), 0 0 30px rgba(0, 100, 255, 0.5)' : 'none', letterSpacing: '0.08em' }}>
+                      <span key={w.id} className="lyrics-past-span" style={{ fontSize: 'clamp(18px, 4vw, 32px)', fontFamily: "'Noto Sans JP', sans-serif", fontWeight: 900, color: hit ? 'rgba(255, 255, 255, 0.95)' : 'rgba(100, 130, 180, 0.3)', textShadow: hit ? '0 0 15px rgba(100, 180, 255, 0.7), 0 0 30px rgba(0, 100, 255, 0.5)' : 'none', letterSpacing: '0.08em' }}>
                         {w.text}
                       </span>
                     );
@@ -282,11 +283,11 @@ export default function PhraseDisplay({ positionRef }: { positionRef: React.RefO
         </div>
       )}
 
-      <div style={{ position: 'absolute', bottom: 'max(60px, 12vh)', width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 100 }}>
+      <div className="lyrics-main-container" style={{ position: 'absolute', bottom: 'max(60px, 12vh)', width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 100 }}>
         <div style={{ maxWidth: 'min(1200px, 95%)', width: '95%', overflow: 'hidden', position: 'relative', display: 'flex', justifyContent: 'flex-start', alignItems: 'center', maskImage: 'linear-gradient(to right, transparent 0%, black 8%, black 85%, transparent 100%)', WebkitMaskImage: 'linear-gradient(to right, transparent 0%, black 8%, black 85%, transparent 100%)' }}>
           <div ref={tickerRef} style={{ display: 'flex', alignItems: 'center', gap: '0 2px', whiteSpace: 'nowrap', willChange: 'transform' }}>
             {allChars.map((c, idx) => (
-              <span key={c.id || `char-${idx}`} style={{ fontSize: 'clamp(21px, 3.3vw, 42px)', fontFamily: "'Noto Sans JP', sans-serif", fontWeight: 900, color: 'rgba(180, 210, 255, 0.35)', textShadow: '0 0 8px rgba(50, 100, 200, 0.3)', lineHeight: 1.1, letterSpacing: '0.05em', flexShrink: 0, transition: 'color 0.1s ease, text-shadow 0.1s ease' }}>
+              <span key={c.id || `char-${idx}`} className="lyrics-main-span" style={{ fontSize: 'clamp(21px, 3.3vw, 42px)', fontFamily: "'Noto Sans JP', sans-serif", fontWeight: 900, color: 'rgba(180, 210, 255, 0.35)', textShadow: '0 0 8px rgba(50, 100, 200, 0.3)', lineHeight: 1.1, letterSpacing: '0.05em', flexShrink: 0, transition: 'color 0.1s ease, text-shadow 0.1s ease' }}>
                 {c.text}
               </span>
             ))}
