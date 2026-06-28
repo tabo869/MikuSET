@@ -773,8 +773,8 @@ export default function Scene() {
             <>
               <JudgeLine />
               <PlayAreaFrame isVisible={true} />
-              <Baton handDataRef={leftHandRef} trailColor="#66aaff" />
-              <Baton handDataRef={rightHandRef} trailColor="#ff66aa" />
+              <Baton handDataRef={leftHandRef} trailColor={musicState.activeSongUrl === 'https://piapro.jp/t/QBdL/20251215094303' ? "#ffcc00" : "#39c5bb"} />
+              <Baton handDataRef={rightHandRef} trailColor={musicState.activeSongUrl === 'https://piapro.jp/t/QBdL/20251215094303' ? "#ffcc00" : "#39c5bb"} />
             </>
           )}
 
