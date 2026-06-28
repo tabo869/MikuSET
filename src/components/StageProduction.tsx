@@ -2,7 +2,7 @@ import { useRef, useMemo, memo, Suspense } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { CameraShake, Text } from '@react-three/drei';
 import * as THREE from 'three';
-import { useGameState } from '../hooks/useGameState';
+import { useGameState, useGameStateSnapshot } from '../hooks/useGameState';
 import { useMusicPlayer } from '../hooks/useMusicPlayer';
 import { CONTEST_SONGS } from '../config/songs';
 import { getRankingByDifficulty } from '../utils/ranking';
@@ -498,6 +498,7 @@ function AudiencePenlights({ isDroneActive }: { isDroneActive: boolean }) {
 // ---------------------------------------------------------------------------
 function VirtualStage({ isDroneActive }: { isDroneActive: boolean }) {
   const { positionRef, state: musicState } = useMusicPlayer();
+  const gameState = useGameStateSnapshot();
   
   const stageRef = useRef<THREE.Group>(null!);
   const singerAuraRef = useRef<THREE.MeshBasicMaterial>(null!);
@@ -515,21 +516,21 @@ function VirtualStage({ isDroneActive }: { isDroneActive: boolean }) {
     return CONTEST_SONGS.findIndex((s) => s.url === musicState.activeSongUrl);
   }, [musicState.activeSongUrl]);
 
-  // ハイスコア情報を取得
+  // ハイスコア情報を取得 (gameStateを監視して、リザルト画面や選曲画面に戻った際に最新のスコアに更新)
   const easyHighScore = useMemo(() => {
     const scores = getRankingByDifficulty(musicState.activeSongUrl, 'Easy');
     return scores[0]?.score ?? 0;
-  }, [musicState.activeSongUrl]);
+  }, [musicState.activeSongUrl, gameState]);
 
   const normalHighScore = useMemo(() => {
     const scores = getRankingByDifficulty(musicState.activeSongUrl, 'Normal');
     return scores[0]?.score ?? 0;
-  }, [musicState.activeSongUrl]);
+  }, [musicState.activeSongUrl, gameState]);
 
   const hardHighScore = useMemo(() => {
     const scores = getRankingByDifficulty(musicState.activeSongUrl, 'Hard');
     return scores[0]?.score ?? 0;
-  }, [musicState.activeSongUrl]);
+  }, [musicState.activeSongUrl, gameState]);
 
   useFrame((_, delta) => {
     if (!stageRef.current) return;
