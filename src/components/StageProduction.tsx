@@ -533,7 +533,7 @@ function VirtualStage({ isDroneActive }: { isDroneActive: boolean }) {
   }, [musicState.activeSongUrl, gameState]);
 
   const veryHardHighScore = useMemo(() => {
-    const scores = getRankingByDifficulty(musicState.activeSongUrl, 'VeryHard');
+    const scores = getRankingByDifficulty(musicState.activeSongUrl, 'Very Hard');
     return scores[0]?.score ?? 0;
   }, [musicState.activeSongUrl, gameState]);
 
